@@ -78,7 +78,7 @@ final class GameScene: SKScene {
     private var boardOrigin = CGPoint.zero
     private var tileSize: CGFloat = 0
     private var gridSize = CGSize.zero
-    private let minTileSize: CGFloat = 36
+    private let minTileSize: CGFloat = 30
     private var rows = 8
     private var cols = 8
     private var mineCount = 10
@@ -184,8 +184,8 @@ final class GameScene: SKScene {
     }
 
     private func setupBoard() {
-        let availableHeight = size.height - 140
-        let boardSize = min(size.width - 40, availableHeight)
+        let availableHeight = size.height - 120
+        let boardSize = min(size.width - 24, availableHeight)
         tileSize = max(minTileSize, floor(boardSize / CGFloat(max(rows, cols))))
         let gridWidth = tileSize * CGFloat(cols)
         let gridHeight = tileSize * CGFloat(rows)
