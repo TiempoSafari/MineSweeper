@@ -390,6 +390,9 @@ final class GameScene: SKScene {
 
             guard let targetCell = cell(at: endPoint) else { continue }
             if isDoubleTap(on: targetCell, at: touch.timestamp) {
+                if targetCell.isFlagged {
+                    toggleFlag(for: targetCell)
+                }
                 reveal(cell: targetCell)
             } else {
                 toggleFlag(for: targetCell)
