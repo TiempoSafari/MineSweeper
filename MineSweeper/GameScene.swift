@@ -8,102 +8,314 @@
 import SpriteKit
 import GameplayKit
 
-class GameScene: SKScene {
-    
-    var entities = [GKEntity]()
-    var graphs = [String : GKGraph]()
-    
-    private var lastUpdateTime : TimeInterval = 0
-    private var label : SKLabelNode?
-    private var spinnyNode : SKShapeNode?
-    
-    override func sceneDidLoad() {
+final class GameScene: SKScene {
+    struct TouchInfo {
+        let startTime: TimeInterval
+        let startPoint: CGPoint
+    }
 
-        self.lastUpdateTime = 0
-        
-        // Get label node from scene and store it for use later
-        self.label = self.childNode(withName: "//helloLabel") as? SKLabelNode
-        if let label = self.label {
-            label.alpha = 0.0
-            label.run(SKAction.fadeIn(withDuration: 2.0))
-        }
-        
-        // Create shape node to use during mouse interaction
-        let w = (self.size.width + self.size.height) * 0.05
-        self.spinnyNode = SKShapeNode.init(rectOf: CGSize.init(width: w, height: w), cornerRadius: w * 0.3)
-        
-        if let spinnyNode = self.spinnyNode {
-            spinnyNode.lineWidth = 2.5
-            
-            spinnyNode.run(SKAction.repeatForever(SKAction.rotate(byAngle: CGFloat(Double.pi), duration: 1)))
-            spinnyNode.run(SKAction.sequence([SKAction.wait(forDuration: 0.5),
-                                              SKAction.fadeOut(withDuration: 0.5),
-                                              SKAction.removeFromParent()]))
+    final class Cell {
+        let row: Int
+        let col: Int
+        var hasMine = false
+        var isRevealed = false
+        var isFlagged = false
+        var adjacentMines = 0
+        let node: SKShapeNode
+        let label: SKLabelNode
+
+        init(row: Int, col: Int, node: SKShapeNode, label: SKLabelNode) {
+            self.row = row
+            self.col = col
+            self.node = node
+            self.label = label
         }
     }
-    
-    
-    func touchDown(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.green
-            self.addChild(n)
+
+    var entities = [GKEntity]()
+    var graphs = [String: GKGraph]()
+
+    private var boardNode = SKNode()
+    private var cells: [[Cell]] = []
+    private var touchInfo: [ObjectIdentifier: TouchInfo] = [:]
+    private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
+    private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
+    private var boardOrigin = CGPoint.zero
+    private var tileSize: CGFloat = 0
+    private var rows = 10
+    private var cols = 8
+    private var mineCount = 10
+    private var isFirstMove = true
+    private var isGameOver = false
+    private var revealedCount = 0
+
+    override func didMove(to view: SKView) {
+        backgroundColor = SKColor.systemBackground
+        configureLabels()
+        startNewGame()
+    }
+
+    private func configureLabels() {
+        statusLabel.fontSize = 28
+        statusLabel.fontColor = SKColor.label
+        statusLabel.horizontalAlignmentMode = .center
+        statusLabel.position = CGPoint(x: frame.midX, y: frame.maxY - 60)
+        statusLabel.zPosition = 10
+        addChild(statusLabel)
+
+        mineLabel.fontSize = 18
+        mineLabel.fontColor = SKColor.secondaryLabel
+        mineLabel.horizontalAlignmentMode = .center
+        mineLabel.position = CGPoint(x: frame.midX, y: frame.maxY - 90)
+        mineLabel.zPosition = 10
+        addChild(mineLabel)
+    }
+
+    private func startNewGame() {
+        boardNode.removeFromParent()
+        boardNode = SKNode()
+        addChild(boardNode)
+
+        isFirstMove = true
+        isGameOver = false
+        revealedCount = 0
+
+        statusLabel.text = "扫雷"
+        configureBoardDimensions()
+        setupBoard()
+        updateMineLabel()
+    }
+
+    private func configureBoardDimensions() {
+        let minSide = min(size.width, size.height)
+        let suggestedRows = max(8, Int(minSide / 50))
+        rows = max(8, min(12, suggestedRows))
+        cols = max(8, min(12, suggestedRows))
+        mineCount = max(10, Int(Double(rows * cols) * 0.18))
+    }
+
+    private func setupBoard() {
+        let availableHeight = size.height - 140
+        let boardSize = min(size.width - 40, availableHeight)
+        tileSize = floor(boardSize / CGFloat(max(rows, cols)))
+        let gridWidth = tileSize * CGFloat(cols)
+        let gridHeight = tileSize * CGFloat(rows)
+        boardOrigin = CGPoint(
+            x: frame.midX - gridWidth / 2,
+            y: frame.midY - gridHeight / 2 - 20
+        )
+
+        cells = []
+        for row in 0..<rows {
+            var rowCells: [Cell] = []
+            for col in 0..<cols {
+                let node = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 4)
+                node.fillColor = SKColor.systemGray5
+                node.strokeColor = SKColor.systemGray2
+                node.lineWidth = 1
+                node.position = positionFor(row: row, col: col)
+                node.zPosition = 1
+
+                let label = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
+                label.fontSize = tileSize * 0.5
+                label.fontColor = SKColor.label
+                label.verticalAlignmentMode = .center
+                label.horizontalAlignmentMode = .center
+                label.text = ""
+                label.zPosition = 2
+                node.addChild(label)
+
+                boardNode.addChild(node)
+                let cell = Cell(row: row, col: col, node: node, label: label)
+                rowCells.append(cell)
+            }
+            cells.append(rowCells)
         }
     }
-    
-    func touchMoved(toPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.blue
-            self.addChild(n)
+
+    private func positionFor(row: Int, col: Int) -> CGPoint {
+        CGPoint(
+            x: boardOrigin.x + CGFloat(col) * tileSize + tileSize / 2,
+            y: boardOrigin.y + CGFloat(rows - 1 - row) * tileSize + tileSize / 2
+        )
+    }
+
+    private func updateMineLabel() {
+        let flagged = cells.flatMap { $0 }.filter { $0.isFlagged }.count
+        mineLabel.text = "地雷: \(mineCount)  标记: \(flagged)"
+    }
+
+    private func placeMines(excluding cell: Cell) {
+        var available = cells.flatMap { $0 }.filter { $0.row != cell.row || $0.col != cell.col }
+        let randomSource = GKARC4RandomSource()
+        randomSource.dropValues(32)
+        let shuffled = randomSource.arrayByShufflingObjects(in: available) as? [Cell] ?? available
+        for mineCell in shuffled.prefix(mineCount) {
+            mineCell.hasMine = true
+        }
+        for row in 0..<rows {
+            for col in 0..<cols {
+                cells[row][col].adjacentMines = countAdjacentMines(row: row, col: col)
+            }
         }
     }
-    
-    func touchUp(atPoint pos : CGPoint) {
-        if let n = self.spinnyNode?.copy() as! SKShapeNode? {
-            n.position = pos
-            n.strokeColor = SKColor.red
-            self.addChild(n)
+
+    private func countAdjacentMines(row: Int, col: Int) -> Int {
+        var count = 0
+        for dr in -1...1 {
+            for dc in -1...1 {
+                if dr == 0 && dc == 0 {
+                    continue
+                }
+                let r = row + dr
+                let c = col + dc
+                if r >= 0 && r < rows && c >= 0 && c < cols {
+                    if cells[r][c].hasMine {
+                        count += 1
+                    }
+                }
+            }
+        }
+        return count
+    }
+
+    private func reveal(cell: Cell) {
+        guard !cell.isRevealed, !cell.isFlagged else { return }
+        if isFirstMove {
+            placeMines(excluding: cell)
+            isFirstMove = false
+        }
+
+        cell.isRevealed = true
+        cell.node.fillColor = SKColor.systemGray4
+        revealedCount += 1
+
+        if cell.hasMine {
+            cell.label.text = "💣"
+            endGame(didWin: false)
+            return
+        }
+
+        if cell.adjacentMines > 0 {
+            cell.label.text = "\(cell.adjacentMines)"
+            cell.label.fontColor = colorForMineCount(cell.adjacentMines)
+        } else {
+            cell.label.text = ""
+            revealNeighbors(from: cell)
+        }
+
+        if revealedCount == rows * cols - mineCount {
+            endGame(didWin: true)
         }
     }
-    
+
+    private func revealNeighbors(from cell: Cell) {
+        var queue = [cell]
+        var index = 0
+        while index < queue.count {
+            let current = queue[index]
+            index += 1
+            for dr in -1...1 {
+                for dc in -1...1 {
+                    let r = current.row + dr
+                    let c = current.col + dc
+                    if r >= 0 && r < rows && c >= 0 && c < cols {
+                        let neighbor = cells[r][c]
+                        if neighbor.isRevealed || neighbor.isFlagged {
+                            continue
+                        }
+                        neighbor.isRevealed = true
+                        neighbor.node.fillColor = SKColor.systemGray4
+                        revealedCount += 1
+                        if neighbor.hasMine {
+                            neighbor.label.text = "💣"
+                        } else if neighbor.adjacentMines > 0 {
+                            neighbor.label.text = "\(neighbor.adjacentMines)"
+                            neighbor.label.fontColor = colorForMineCount(neighbor.adjacentMines)
+                        } else {
+                            neighbor.label.text = ""
+                            queue.append(neighbor)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private func toggleFlag(for cell: Cell) {
+        guard !cell.isRevealed else { return }
+        cell.isFlagged.toggle()
+        cell.label.text = cell.isFlagged ? "🚩" : ""
+        cell.label.fontColor = SKColor.systemRed
+        updateMineLabel()
+    }
+
+    private func endGame(didWin: Bool) {
+        isGameOver = true
+        statusLabel.text = didWin ? "你赢了！" : "踩到地雷了"
+        mineLabel.text = "点击任意位置重新开始"
+        revealAllMines()
+    }
+
+    private func revealAllMines() {
+        for row in cells {
+            for cell in row where cell.hasMine {
+                cell.label.text = "💣"
+                cell.node.fillColor = SKColor.systemRed.withAlphaComponent(0.2)
+            }
+        }
+    }
+
+    private func colorForMineCount(_ count: Int) -> SKColor {
+        switch count {
+        case 1: return SKColor.systemBlue
+        case 2: return SKColor.systemGreen
+        case 3: return SKColor.systemOrange
+        case 4: return SKColor.systemPurple
+        default: return SKColor.systemRed
+        }
+    }
+
+    private func cell(at point: CGPoint) -> Cell? {
+        let col = Int((point.x - boardOrigin.x) / tileSize)
+        let rowFromBottom = Int((point.y - boardOrigin.y) / tileSize)
+        let row = rows - 1 - rowFromBottom
+        guard row >= 0, row < rows, col >= 0, col < cols else { return nil }
+        return cells[row][col]
+    }
+
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        if let label = self.label {
-            label.run(SKAction.init(named: "Pulse")!, withKey: "fadeInOut")
+        for touch in touches {
+            let identifier = ObjectIdentifier(touch)
+            touchInfo[identifier] = TouchInfo(startTime: touch.timestamp, startPoint: touch.location(in: self))
         }
-        
-        for t in touches { self.touchDown(atPoint: t.location(in: self)) }
     }
-    
-    override func touchesMoved(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchMoved(toPoint: t.location(in: self)) }
-    }
-    
+
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
+        for touch in touches {
+            let identifier = ObjectIdentifier(touch)
+            guard let info = touchInfo.removeValue(forKey: identifier) else { continue }
+            let endPoint = touch.location(in: self)
+            let duration = touch.timestamp - info.startTime
+
+            if isGameOver {
+                startNewGame()
+                continue
+            }
+
+            guard let targetCell = cell(at: endPoint) else { continue }
+            if duration > 0.35 {
+                toggleFlag(for: targetCell)
+            } else {
+                reveal(cell: targetCell)
+            }
+        }
     }
-    
+
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for t in touches { self.touchUp(atPoint: t.location(in: self)) }
-    }
-    
-    
-    override func update(_ currentTime: TimeInterval) {
-        // Called before each frame is rendered
-        
-        // Initialize _lastUpdateTime if it has not already been
-        if (self.lastUpdateTime == 0) {
-            self.lastUpdateTime = currentTime
+        for touch in touches {
+            let identifier = ObjectIdentifier(touch)
+            touchInfo.removeValue(forKey: identifier)
         }
-        
-        // Calculate time since last update
-        let dt = currentTime - self.lastUpdateTime
-        
-        // Update entities
-        for entity in self.entities {
-            entity.update(deltaTime: dt)
-        }
-        
-        self.lastUpdateTime = currentTime
     }
 }
