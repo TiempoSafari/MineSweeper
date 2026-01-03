@@ -7,6 +7,7 @@
 
 import SpriteKit
 import GameplayKit
+import UIKit
 
 protocol GameSceneDelegate: AnyObject {
     func gameSceneDidRequestStartMenu(_ scene: GameScene)
@@ -65,8 +66,9 @@ final class GameScene: SKScene {
 
     private var boardNode = SKNode()
     private var cells: [[Cell]] = []
-    private var lastTapTime: TimeInterval = 0
-    private var lastTapCell: Cell?
+    private var touchInfo: [ObjectIdentifier: TimeInterval] = [:]
+    private let longPressThreshold: TimeInterval = 0.4
+    private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
     private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
     private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
     private var statusBackground = SKShapeNode()
@@ -89,6 +91,7 @@ final class GameScene: SKScene {
         configureBackground()
         configureLabels()
         childNode(withName: "//helloLabel")?.removeFromParent()
+        feedbackGenerator.prepare()
         showStartState()
     }
 
@@ -277,6 +280,8 @@ final class GameScene: SKScene {
         cell.isRevealed = true
         cell.node.fillColor = SKColor.systemMint.withAlphaComponent(0.22)
         revealedCount += 1
+        feedbackGenerator.impactOccurred()
+        feedbackGenerator.prepare()
 
         if cell.hasMine {
             cell.label.text = "💣"
@@ -379,6 +384,9 @@ final class GameScene: SKScene {
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let endPoint = touch.location(in: self)
+            let identifier = ObjectIdentifier(touch)
+            let startTime = touchInfo.removeValue(forKey: identifier) ?? touch.timestamp
+            let duration = touch.timestamp - startTime
 
             if isWaitingForStart {
                 continue
@@ -389,10 +397,7 @@ final class GameScene: SKScene {
             }
 
             guard let targetCell = cell(at: endPoint) else { continue }
-            if isDoubleTap(on: targetCell, at: touch.timestamp) {
-                if targetCell.isFlagged {
-                    toggleFlag(for: targetCell)
-                }
+            if duration >= longPressThreshold {
                 reveal(cell: targetCell)
             } else {
                 toggleFlag(for: targetCell)
@@ -401,23 +406,17 @@ final class GameScene: SKScene {
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        lastTapCell = nil
+        for touch in touches {
+            let identifier = ObjectIdentifier(touch)
+            touchInfo.removeValue(forKey: identifier)
+        }
     }
 
-    private func isDoubleTap(on cell: Cell, at timestamp: TimeInterval) -> Bool {
-        let threshold: TimeInterval = 0.28
-        if let lastCell = lastTapCell,
-           lastCell.row == cell.row,
-           lastCell.col == cell.col,
-           timestamp - lastTapTime <= threshold {
-            lastTapCell = nil
-            lastTapTime = 0
-            return true
+    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            let identifier = ObjectIdentifier(touch)
+            touchInfo[identifier] = touch.timestamp
         }
-
-        lastTapCell = cell
-        lastTapTime = timestamp
-        return false
     }
 
     private func configureBackground() {
