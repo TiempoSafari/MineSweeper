@@ -14,7 +14,7 @@ class GameViewController: UIViewController {
     private var startMenuView: UIVisualEffectView?
     private var dimmingView: UIVisualEffectView?
     private var backgroundImageView: UIImageView?
-    private var difficultyTabBar: UITabBar?
+    private var difficultyTableView: UITableView?
     private let difficulties: [DifficultyOption] = [
         DifficultyOption(title: "简单", rows: 8, cols: 8, mines: 10),
         DifficultyOption(title: "中等", rows: 12, cols: 10, mines: 20),
@@ -51,6 +51,13 @@ class GameViewController: UIViewController {
                     configureStartMenu()
                 }
             }
+        }
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        if let backgroundImageView = backgroundImageView {
+            backgroundImageView.image = makeBackgroundImage(size: view.bounds.size)
         }
     }
 
@@ -122,7 +129,17 @@ extension GameViewController {
         subtitleLabel.textColor = UIColor.secondaryLabel
         subtitleLabel.textAlignment = .center
 
-        let containerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel])
+        let tableView = UITableView(frame: .zero, style: .insetGrouped)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.backgroundColor = UIColor.clear
+        tableView.separatorStyle = .none
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.rowHeight = 56
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "DifficultyCell")
+        difficultyTableView = tableView
+
+        let containerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, tableView])
         containerStack.translatesAutoresizingMaskIntoConstraints = false
         containerStack.axis = .vertical
         containerStack.spacing = 16
@@ -130,34 +147,9 @@ extension GameViewController {
         blurView.contentView.addSubview(containerStack)
         view.addSubview(blurView)
 
-        let tabBar = UITabBar()
-        tabBar.translatesAutoresizingMaskIntoConstraints = false
-        tabBar.delegate = self
-        tabBar.items = difficulties.enumerated().map { index, difficulty in
-            let item = UITabBarItem(title: difficulty.title, image: nil, tag: index)
-            return item
-        }
-        tabBar.tintColor = UIColor.label
-        tabBar.unselectedItemTintColor = UIColor.secondaryLabel
-
-        let appearance = UITabBarAppearance()
-        appearance.configureWithTransparentBackground()
-        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-        appearance.backgroundColor = UIColor.white.withAlphaComponent(0.12)
-        appearance.shadowColor = UIColor.white.withAlphaComponent(0.25)
-        appearance.stackedLayoutAppearance.normal.iconColor = UIColor.secondaryLabel
-        appearance.stackedLayoutAppearance.normal.titleTextAttributes = [.foregroundColor: UIColor.secondaryLabel]
-        appearance.stackedLayoutAppearance.selected.iconColor = UIColor.label
-        appearance.stackedLayoutAppearance.selected.titleTextAttributes = [.foregroundColor: UIColor.label]
-        tabBar.standardAppearance = appearance
-        tabBar.scrollEdgeAppearance = appearance
-
-        view.addSubview(tabBar)
-        difficultyTabBar = tabBar
-
         NSLayoutConstraint.activate([
             blurView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            blurView.centerYAnchor.constraint(equalTo: view.centerYAnchor, constant: -80),
+            blurView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
             blurView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.78),
 
             containerStack.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: 24),
@@ -165,9 +157,7 @@ extension GameViewController {
             containerStack.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor, constant: 20),
             containerStack.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -20),
 
-            tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 20),
-            tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -20),
-            tabBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -12)
+            tableView.heightAnchor.constraint(equalToConstant: CGFloat(difficulties.count) * 58)
         ])
 
         startMenuView = blurView
@@ -178,23 +168,49 @@ extension GameViewController: GameSceneDelegate {
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
         startMenuView?.isHidden = false
         dimmingView?.isHidden = false
-        difficultyTabBar?.isHidden = false
+        difficultyTableView?.isHidden = false
     }
 
     func gameSceneDidStartGame(_ scene: GameScene) {
         startMenuView?.isHidden = true
         dimmingView?.isHidden = true
-        difficultyTabBar?.isHidden = true
+        difficultyTableView?.isHidden = true
     }
 }
 
-extension GameViewController: UITabBarDelegate {
-    func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
-        let difficulty = difficulties[item.tag]
+extension GameViewController: UITableViewDataSource, UITableViewDelegate {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        difficulties.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "DifficultyCell", for: indexPath)
+        let difficulty = difficulties[indexPath.row]
+        var content = UIListContentConfiguration.cell()
+        content.text = difficulty.title
+        content.textProperties.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        content.textProperties.color = UIColor.label
+        content.textProperties.alignment = .center
+        cell.contentConfiguration = content
+
+        var background = UIBackgroundConfiguration.clear()
+        background.visualEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        background.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+        background.strokeColor = UIColor.white.withAlphaComponent(0.25)
+        background.strokeWidth = 1
+        background.cornerRadius = 18
+        cell.backgroundConfiguration = background
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let difficulty = difficulties[indexPath.row]
         gameScene?.startGame(rows: difficulty.rows, cols: difficulty.cols, mines: difficulty.mines)
         startMenuView?.isHidden = true
         dimmingView?.isHidden = true
-        difficultyTabBar?.isHidden = true
+        difficultyTableView?.isHidden = true
+        tableView.deselectRow(at: indexPath, animated: true)
     }
 }
 
