@@ -17,9 +17,12 @@ class GameViewController: UIViewController {
     private var difficultyTableView: UITableView?
     private var panGesture: UIPanGestureRecognizer?
     private let difficulties: [DifficultyOption] = [
-        DifficultyOption(title: "简单", rows: 8, cols: 8, mines: 10),
-        DifficultyOption(title: "中等", rows: 12, cols: 10, mines: 20),
-        DifficultyOption(title: "困难", rows: 16, cols: 12, mines: 35)
+        DifficultyOption(title: "入门", rows: 9, cols: 9, mines: 10),
+        DifficultyOption(title: "简单", rows: 12, cols: 9, mines: 18),
+        DifficultyOption(title: "中等", rows: 16, cols: 9, mines: 30),
+        DifficultyOption(title: "困难", rows: 16, cols: 16, mines: 40),
+        DifficultyOption(title: "专家", rows: 30, cols: 16, mines: 80),
+        DifficultyOption(title: "大师", rows: 30, cols: 30, mines: 160)
     ]
 
     override func viewDidLoad() {
