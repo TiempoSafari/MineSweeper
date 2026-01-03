@@ -169,12 +169,14 @@ extension GameViewController: GameSceneDelegate {
         startMenuView?.isHidden = false
         dimmingView?.isHidden = false
         difficultyTableView?.isHidden = false
+        backgroundImageView?.isHidden = false
     }
 
     func gameSceneDidStartGame(_ scene: GameScene) {
         startMenuView?.isHidden = true
         dimmingView?.isHidden = true
         difficultyTableView?.isHidden = true
+        backgroundImageView?.isHidden = true
     }
 }
 
@@ -210,6 +212,7 @@ extension GameViewController: UITableViewDataSource, UITableViewDelegate {
         startMenuView?.isHidden = true
         dimmingView?.isHidden = true
         difficultyTableView?.isHidden = true
+        backgroundImageView?.isHidden = true
         tableView.deselectRow(at: indexPath, animated: true)
     }
 }
