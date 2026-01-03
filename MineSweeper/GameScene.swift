@@ -89,6 +89,7 @@ final class GameScene: SKScene {
         backgroundColor = SKColor.systemBackground
         configureBackground()
         configureLabels()
+        childNode(withName: "//helloLabel")?.removeFromParent()
         showStartState()
     }
 
