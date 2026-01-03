@@ -98,6 +98,40 @@ final class GameScene: SKScene {
     private var isGameOver = false
     private var revealedCount = 0
 
+    // MARK: - Inertia Pan (轻微惯性) —— 更像 UIScrollView
+
+    private var inertiaVelocity = CGPoint.zero      // points/sec (UIKit 坐标系速度)
+    private var lastUpdateTime: TimeInterval = 0
+
+    // 惯性强度：越小停得越快（UIScrollView decelerationRate 的思路）
+    private let inertiaDecelerationRate: CGFloat = 0.86   // 0.82~0.90 都可以微调
+    private let inertiaVelocityScale: CGFloat = 0.22      // 0.18~0.25：越大惯性越明显
+    private let inertiaMaxSpeed: CGFloat = 1600
+    private let inertiaEpsilon: CGFloat = 6               // 很小的速度才停（避免硬切顿挫）
+
+    func stopInertiaPan() {
+        inertiaVelocity = .zero
+    }
+
+    func startInertiaPan(initialVelocity: CGPoint) {
+        guard !isWaitingForStart, !isGameOver else { return }
+
+        // 重置，避免第一帧 dt 偶发偏大导致突变
+        lastUpdateTime = 0
+
+        var v = CGPoint(x: initialVelocity.x * inertiaVelocityScale,
+                        y: initialVelocity.y * inertiaVelocityScale)
+
+        let speed = hypot(v.x, v.y)
+        if speed > inertiaMaxSpeed, speed > 0 {
+            let k = inertiaMaxSpeed / speed
+            v.x *= k
+            v.y *= k
+        }
+        inertiaVelocity = v
+    }
+
+
     // MARK: - Visual Palette (增强未翻开/已翻开对比)
 
     private let unrevealedFill = SKColor.systemTeal.withAlphaComponent(0.42)
@@ -144,7 +178,6 @@ final class GameScene: SKScene {
         clearNeighborPreview(touchId: touchId)
         previewSourceByTouch[touchId] = source
 
-        // 美观：柔光描边 + 半透明叠层（旗子格更克制：只描边不填充）
         let overlayFill = SKColor.white.withAlphaComponent(0.12)
         let overlayStroke = SKColor.white.withAlphaComponent(0.55)
 
@@ -184,7 +217,6 @@ final class GameScene: SKScene {
 
     private func clearNeighborPreview(touchId: ObjectIdentifier) {
         previewSourceByTouch.removeValue(forKey: touchId)
-        // 单指为主：清全盘 overlay 最简单可靠
         clearAllNeighborPreviewOverlays()
     }
 
@@ -201,18 +233,16 @@ final class GameScene: SKScene {
         let flagged = flaggedNeighborCount(of: cell)
         guard flagged == cell.adjacentMines else { return }
 
-        // ✅ 可选项：触发 chord 时震动反馈
+        // 触发 chord 时震动反馈
         feedbackGenerator.impactOccurred()
         feedbackGenerator.prepare()
 
-        // 清掉预览 overlay（避免翻开过程叠层残留）
         clearAllNeighborPreviewOverlays()
 
-        // 旗子数刚好：翻开周围所有“未插旗且未翻开”的格子
         for n in neighbors(of: cell) {
-            if isGameOver { break }          // 可能翻到雷会结束
+            if isGameOver { break }
             if n.isFlagged || n.isRevealed { continue }
-            reveal(cell: n)                  // 复用 reveal：旗子插错翻到雷照样结束流程
+            reveal(cell: n)
         }
     }
 
@@ -225,6 +255,41 @@ final class GameScene: SKScene {
         childNode(withName: "//helloLabel")?.removeFromParent()
         feedbackGenerator.prepare()
         showStartState()
+    }
+
+    override func update(_ currentTime: TimeInterval) {
+        if lastUpdateTime == 0 {
+            lastUpdateTime = currentTime
+            return
+        }
+
+        var dt = currentTime - lastUpdateTime
+        lastUpdateTime = currentTime
+
+        // dt 防抖：避免某一帧卡顿导致移动/衰减突变
+        dt = min(dt, 1.0 / 30.0)
+
+        guard !isWaitingForStart, !isGameOver else {
+            inertiaVelocity = .zero
+            return
+        }
+
+        let speed = hypot(inertiaVelocity.x, inertiaVelocity.y)
+        if speed < inertiaEpsilon {
+            inertiaVelocity = .zero
+            return
+        }
+
+        // 先移动
+        let translation = CGPoint(x: inertiaVelocity.x * CGFloat(dt),
+                                  y: inertiaVelocity.y * CGFloat(dt))
+        panBoard(by: translation)
+
+        // 再衰减（UIScrollView 风格：按帧率幂衰减，曲线更“物理”）
+        let frames = CGFloat(dt) * 60.0
+        let decay = pow(inertiaDecelerationRate, frames)
+        inertiaVelocity.x *= decay
+        inertiaVelocity.y *= decay
     }
 
     // MARK: - Labels UI
@@ -275,6 +340,8 @@ final class GameScene: SKScene {
     // MARK: - Game Flow
 
     private func startNewGame() {
+        stopInertiaPan()
+
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
@@ -309,6 +376,8 @@ final class GameScene: SKScene {
     }
 
     func showStartState() {
+        stopInertiaPan()
+
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
@@ -416,7 +485,6 @@ final class GameScene: SKScene {
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
 
-        // 翻开时清掉高亮预览
         clearAllNeighborPreviewOverlays()
 
         if isFirstMove {
@@ -496,8 +564,9 @@ final class GameScene: SKScene {
     // MARK: - End Game
 
     private func endGame(didWin: Bool) {
-        isGameOver = true
+        stopInertiaPan()
 
+        isGameOver = true
         clearAllNeighborPreviewOverlays()
 
         statusLabel.text = didWin ? "你赢了！" : "踩到地雷了"
@@ -539,11 +608,13 @@ final class GameScene: SKScene {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
+        // 手指开始操作时，停掉惯性（避免“边滑边点”）
+        stopInertiaPan()
+
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
             let location = touch.location(in: self)
 
-            // 数字格：按下立即显示预览高亮（并记录 startTime，但不启动翻开 timer）
             if !isWaitingForStart, !isGameOver,
                let c = cell(at: location),
                c.isRevealed, !c.hasMine, c.adjacentMines > 0 {
@@ -553,7 +624,6 @@ final class GameScene: SKScene {
                 continue
             }
 
-            // 原逻辑：记录并启动 long-press reveal timer
             touchInfo[identifier] = LongPressState(startTime: touch.timestamp, location: location)
 
             let timer = Timer.scheduledTimer(withTimeInterval: longPressThreshold, repeats: false) { [weak self] _ in
@@ -575,7 +645,6 @@ final class GameScene: SKScene {
             let endPoint = touch.location(in: self)
             let identifier = ObjectIdentifier(touch)
 
-            // 松手：恢复预览
             clearNeighborPreview(touchId: identifier)
 
             touchRevealTimers[identifier]?.invalidate()
@@ -587,9 +656,6 @@ final class GameScene: SKScene {
             if isWaitingForStart || isGameOver { continue }
             guard let targetCell = cell(at: endPoint) else { continue }
 
-            // 短按逻辑：
-            // 1) 短按数字格 -> chord 自动翻开邻居（旗子数==数字）
-            // 2) 短按未翻开格 -> 插旗
             if duration < longPressThreshold {
                 if targetCell.isRevealed, !targetCell.hasMine, targetCell.adjacentMines > 0 {
                     chordReveal(from: targetCell)
@@ -603,7 +669,6 @@ final class GameScene: SKScene {
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
-
             clearNeighborPreview(touchId: identifier)
 
             touchInfo.removeValue(forKey: identifier)
@@ -663,7 +728,8 @@ final class GameScene: SKScene {
 
     func panBoard(by translation: CGPoint) {
         guard !isWaitingForStart else { return }
-        let proposed = CGPoint(x: boardNode.position.x + translation.x, y: boardNode.position.y - translation.y)
+        let proposed = CGPoint(x: boardNode.position.x + translation.x,
+                               y: boardNode.position.y - translation.y) // 注意这里 y 方向与 UIKit 相反
         let clamped = clampedBoardOrigin(proposed: proposed)
         boardNode.position = clamped
     }

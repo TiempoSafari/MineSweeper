@@ -16,6 +16,7 @@ class GameViewController: UIViewController {
     private var backgroundImageView: UIImageView?
     private var difficultyTableView: UITableView?
     private var panGesture: UIPanGestureRecognizer?
+
     private let difficulties: [DifficultyOption] = [
         DifficultyOption(title: "入门", rows: 9, cols: 9, mines: 10),
         DifficultyOption(title: "简单", rows: 12, cols: 9, mines: 18),
@@ -27,29 +28,19 @@ class GameViewController: UIViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        
-        // Load 'GameScene.sks' as a GKScene. This provides gameplay related content
-        // including entities and graphs.
+
         if let scene = GKScene(fileNamed: "GameScene") {
-            
-            // Get the SKScene from the loaded GKScene
             if let sceneNode = scene.rootNode as! GameScene? {
-                
-                // Copy gameplay related content over to the scene
                 sceneNode.entities = scene.entities
                 sceneNode.graphs = scene.graphs
-                
-                // Set the scale mode to scale to fit the window
                 sceneNode.scaleMode = .aspectFill
-                
-                // Present the scene
+
                 if let view = self.view as! SKView? {
                     view.presentScene(sceneNode)
-                    
                     view.ignoresSiblingOrder = true
-                    
                     view.showsFPS = true
                     view.showsNodeCount = true
+
                     gameScene = sceneNode
                     sceneNode.uiDelegate = self
                     configureStartMenu()
@@ -178,10 +169,25 @@ extension GameViewController {
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         guard startMenuView?.isHidden == true else { return }
-        let translation = gesture.translation(in: view)
-        if gesture.state == .changed {
+        guard let view = self.view else { return }
+
+        switch gesture.state {
+        case .began:
+            // ✅ 开始拖拽时立即停止惯性
+            gameScene?.stopInertiaPan()
+
+        case .changed:
+            let translation = gesture.translation(in: view)
             gameScene?.panBoard(by: translation)
             gesture.setTranslation(.zero, in: view)
+
+        case .ended, .cancelled, .failed:
+            // ✅ 松手后根据速度给一点点惯性（不会太多）
+            let velocity = gesture.velocity(in: view)
+            gameScene?.startInertiaPan(initialVelocity: velocity)
+
+        default:
+            break
         }
     }
 }
@@ -274,6 +280,8 @@ private extension GameViewController {
                 context.cgContext.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
                 context.cgContext.fillPath()
             }
+
+            _ = rect
         }
     }
 }
