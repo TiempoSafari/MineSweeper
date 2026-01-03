@@ -78,7 +78,7 @@ final class GameScene: SKScene {
     private var boardOrigin = CGPoint.zero
     private var tileSize: CGFloat = 0
     private var gridSize = CGSize.zero
-    private let tileSizeFixed: CGFloat = 44
+    private let tileSizeFixed: CGFloat = 66
     private var rows = 8
     private var cols = 8
     private var mineCount = 10
@@ -469,7 +469,7 @@ final class GameScene: SKScene {
 
     func panBoard(by translation: CGPoint) {
         guard !isWaitingForStart else { return }
-        let proposed = CGPoint(x: boardNode.position.x + translation.x, y: boardNode.position.y + translation.y)
+        let proposed = CGPoint(x: boardNode.position.x + translation.x, y: boardNode.position.y - translation.y)
         let clamped = clampedBoardOrigin(proposed: proposed)
         boardNode.position = clamped
     }
