@@ -8,6 +8,11 @@
 import SpriteKit
 import GameplayKit
 
+protocol GameSceneDelegate: AnyObject {
+    func gameSceneDidRequestStartMenu(_ scene: GameScene)
+    func gameSceneDidStartGame(_ scene: GameScene)
+}
+
 final class GameScene: SKScene {
     enum Difficulty: CaseIterable {
         case easy
@@ -60,11 +65,16 @@ final class GameScene: SKScene {
     var entities = [GKEntity]()
     var graphs = [String: GKGraph]()
 
+    weak var uiDelegate: GameSceneDelegate?
+
     private var boardNode = SKNode()
     private var cells: [[Cell]] = []
     private var touchInfo: [ObjectIdentifier: TouchInfo] = [:]
     private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
     private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
+    private var statusBackground = SKShapeNode()
+    private var mineBackground = SKShapeNode()
+    private var backgroundNode = SKSpriteNode()
     private var boardOrigin = CGPoint.zero
     private var tileSize: CGFloat = 0
     private var rows = 8
@@ -77,24 +87,52 @@ final class GameScene: SKScene {
 
     override func didMove(to view: SKView) {
         backgroundColor = SKColor.systemBackground
+        configureBackground()
         configureLabels()
         showStartState()
     }
 
     private func configureLabels() {
-        statusLabel.fontSize = 28
+        statusLabel.fontSize = 26
         statusLabel.fontColor = SKColor.label
         statusLabel.horizontalAlignmentMode = .center
         statusLabel.position = CGPoint(x: frame.midX, y: frame.maxY - 60)
         statusLabel.zPosition = 10
         addChild(statusLabel)
 
-        mineLabel.fontSize = 18
+        mineLabel.fontSize = 17
         mineLabel.fontColor = SKColor.secondaryLabel
         mineLabel.horizontalAlignmentMode = .center
         mineLabel.position = CGPoint(x: frame.midX, y: frame.maxY - 90)
         mineLabel.zPosition = 10
         addChild(mineLabel)
+
+        statusBackground = labelBackdrop(for: statusLabel, horizontalPadding: 22, verticalPadding: 12)
+        mineBackground = labelBackdrop(for: mineLabel, horizontalPadding: 20, verticalPadding: 10)
+        addChild(statusBackground)
+        addChild(mineBackground)
+        updateLabelBackdrops()
+    }
+
+    private func labelBackdrop(for label: SKLabelNode, horizontalPadding: CGFloat, verticalPadding: CGFloat) -> SKShapeNode {
+        let size = CGSize(width: label.frame.width + horizontalPadding, height: label.frame.height + verticalPadding)
+        let node = SKShapeNode(rectOf: size, cornerRadius: size.height / 2)
+        node.fillColor = SKColor.white.withAlphaComponent(0.18)
+        node.strokeColor = SKColor.white.withAlphaComponent(0.35)
+        node.lineWidth = 1
+        node.glowWidth = 2
+        node.zPosition = label.zPosition - 1
+        node.position = label.position
+        return node
+    }
+
+    private func updateLabelBackdrops() {
+        statusBackground.removeFromParent()
+        mineBackground.removeFromParent()
+        statusBackground = labelBackdrop(for: statusLabel, horizontalPadding: 22, verticalPadding: 12)
+        mineBackground = labelBackdrop(for: mineLabel, horizontalPadding: 20, verticalPadding: 10)
+        addChild(statusBackground)
+        addChild(mineBackground)
     }
 
     private func startNewGame() {
@@ -108,8 +146,10 @@ final class GameScene: SKScene {
         revealedCount = 0
 
         statusLabel.text = "扫雷"
+        updateLabelBackdrops()
         setupBoard()
         updateMineLabel()
+        uiDelegate?.gameSceneDidStartGame(self)
     }
 
     func startGame(difficulty: Difficulty) {
@@ -137,6 +177,7 @@ final class GameScene: SKScene {
         revealedCount = 0
         statusLabel.text = "选择难度开始"
         mineLabel.text = ""
+        updateLabelBackdrops()
     }
 
     private func setupBoard() {
@@ -154,10 +195,11 @@ final class GameScene: SKScene {
         for row in 0..<rows {
             var rowCells: [Cell] = []
             for col in 0..<cols {
-                let node = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 4)
-                node.fillColor = SKColor.systemGray5
-                node.strokeColor = SKColor.systemGray2
+                let node = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 6)
+                node.fillColor = SKColor.white.withAlphaComponent(0.18)
+                node.strokeColor = SKColor.white.withAlphaComponent(0.35)
                 node.lineWidth = 1
+                node.glowWidth = 1.5
                 node.position = positionFor(row: row, col: col)
                 node.zPosition = 1
 
@@ -188,6 +230,7 @@ final class GameScene: SKScene {
     private func updateMineLabel() {
         let flagged = cells.flatMap { $0 }.filter { $0.isFlagged }.count
         mineLabel.text = "地雷: \(mineCount)  标记: \(flagged)"
+        updateLabelBackdrops()
     }
 
     private func placeMines(excluding cell: Cell) {
@@ -232,7 +275,7 @@ final class GameScene: SKScene {
         }
 
         cell.isRevealed = true
-        cell.node.fillColor = SKColor.systemGray4
+        cell.node.fillColor = SKColor.white.withAlphaComponent(0.35)
         revealedCount += 1
 
         if cell.hasMine {
@@ -270,7 +313,7 @@ final class GameScene: SKScene {
                             continue
                         }
                         neighbor.isRevealed = true
-                        neighbor.node.fillColor = SKColor.systemGray4
+                        neighbor.node.fillColor = SKColor.white.withAlphaComponent(0.35)
                         revealedCount += 1
                         if neighbor.hasMine {
                             neighbor.label.text = "💣"
@@ -298,15 +341,19 @@ final class GameScene: SKScene {
     private func endGame(didWin: Bool) {
         isGameOver = true
         statusLabel.text = didWin ? "你赢了！" : "踩到地雷了"
-        mineLabel.text = "点击任意位置重新开始"
+        mineLabel.text = "返回开始界面"
         revealAllMines()
+        updateLabelBackdrops()
+        showStartState()
+        uiDelegate?.gameSceneDidRequestStartMenu(self)
     }
 
     private func revealAllMines() {
         for row in cells {
             for cell in row where cell.hasMine {
                 cell.label.text = "💣"
-                cell.node.fillColor = SKColor.systemRed.withAlphaComponent(0.2)
+                cell.node.fillColor = SKColor.systemRed.withAlphaComponent(0.25)
+                cell.node.strokeColor = SKColor.systemRed.withAlphaComponent(0.4)
             }
         }
     }
@@ -348,7 +395,8 @@ final class GameScene: SKScene {
             }
 
             if isGameOver {
-                startNewGame()
+                showStartState()
+                uiDelegate?.gameSceneDidRequestStartMenu(self)
                 continue
             }
 
@@ -366,5 +414,28 @@ final class GameScene: SKScene {
             let identifier = ObjectIdentifier(touch)
             touchInfo.removeValue(forKey: identifier)
         }
+    }
+
+    private func configureBackground() {
+        backgroundNode.removeFromParent()
+        let texture = gradientTexture(
+            start: UIColor(red: 0.84, green: 0.92, blue: 1.0, alpha: 1.0),
+            end: UIColor(red: 0.96, green: 0.98, blue: 1.0, alpha: 1.0)
+        )
+        backgroundNode = SKSpriteNode(texture: texture, size: size)
+        backgroundNode.position = CGPoint(x: frame.midX, y: frame.midY)
+        backgroundNode.zPosition = -10
+        addChild(backgroundNode)
+    }
+
+    private func gradientTexture(start: UIColor, end: UIColor) -> SKTexture {
+        let gradientLayer = CAGradientLayer()
+        gradientLayer.colors = [start.cgColor, end.cgColor]
+        gradientLayer.frame = CGRect(origin: .zero, size: size)
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let image = renderer.image { context in
+            gradientLayer.render(in: context.cgContext)
+        }
+        return SKTexture(image: image)
     }
 }

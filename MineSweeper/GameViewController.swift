@@ -12,6 +12,7 @@ import GameplayKit
 class GameViewController: UIViewController {
     private weak var gameScene: GameScene?
     private var startMenuView: UIVisualEffectView?
+    private var dimmingView: UIVisualEffectView?
     private let difficulties: [DifficultyOption] = [
         DifficultyOption(title: "简单", rows: 8, cols: 8, mines: 10),
         DifficultyOption(title: "中等", rows: 12, cols: 10, mines: 20),
@@ -44,6 +45,7 @@ class GameViewController: UIViewController {
                     view.showsFPS = true
                     view.showsNodeCount = true
                     gameScene = sceneNode
+                    sceneNode.uiDelegate = self
                     configureStartMenu()
                 }
             }
@@ -67,7 +69,22 @@ extension GameViewController {
     private func configureStartMenu() {
         guard let view = self.view else { return }
 
-        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        let backdropEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        let backdropView = UIVisualEffectView(effect: backdropEffect)
+        backdropView.translatesAutoresizingMaskIntoConstraints = false
+        backdropView.alpha = 0.7
+        view.addSubview(backdropView)
+
+        NSLayoutConstraint.activate([
+            backdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            backdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            backdropView.topAnchor.constraint(equalTo: view.topAnchor),
+            backdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+
+        dimmingView = backdropView
+
+        let blurEffect = UIBlurEffect(style: .systemThinMaterial)
         let blurView = UIVisualEffectView(effect: blurEffect)
         blurView.translatesAutoresizingMaskIntoConstraints = false
         blurView.layer.cornerRadius = 28
@@ -129,7 +146,7 @@ extension GameViewController {
         button.setTitle(title, for: .normal)
         button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
         button.tintColor = UIColor.label
-        button.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+        button.backgroundColor = UIColor.white.withAlphaComponent(0.2)
         button.layer.cornerRadius = 18
         button.layer.borderWidth = 1
         button.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
@@ -145,6 +162,19 @@ extension GameViewController {
         }
         gameScene?.startGame(rows: difficulty.rows, cols: difficulty.cols, mines: difficulty.mines)
         startMenuView?.isHidden = true
+        dimmingView?.isHidden = true
+    }
+}
+
+extension GameViewController: GameSceneDelegate {
+    func gameSceneDidRequestStartMenu(_ scene: GameScene) {
+        startMenuView?.isHidden = false
+        dimmingView?.isHidden = false
+    }
+
+    func gameSceneDidStartGame(_ scene: GameScene) {
+        startMenuView?.isHidden = true
+        dimmingView?.isHidden = true
     }
 }
 
