@@ -200,6 +200,18 @@ extension GameViewController: GameSceneDelegate {
         difficultyTableView?.isHidden = true
         backgroundImageView?.isHidden = true
     }
+
+    func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool) {
+        let title = didWin ? "扫雷成功" : "扫雷失败"
+        let message = didWin ? "恭喜你清除了所有地雷。" : "你踩到了地雷。"
+        let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { [weak self] _ in
+            guard let self = self else { return }
+            scene.showStartState()
+            self.gameSceneDidRequestStartMenu(scene)
+        }))
+        present(alert, animated: true)
+    }
 }
 
 extension GameViewController: UITableViewDataSource, UITableViewDelegate {

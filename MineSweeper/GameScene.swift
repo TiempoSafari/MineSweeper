@@ -11,6 +11,7 @@ import GameplayKit
 protocol GameSceneDelegate: AnyObject {
     func gameSceneDidRequestStartMenu(_ scene: GameScene)
     func gameSceneDidStartGame(_ scene: GameScene)
+    func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool)
 }
 
 final class GameScene: SKScene {
@@ -170,7 +171,7 @@ final class GameScene: SKScene {
         startNewGame()
     }
 
-    private func showStartState() {
+    func showStartState() {
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
@@ -199,10 +200,10 @@ final class GameScene: SKScene {
             var rowCells: [Cell] = []
             for col in 0..<cols {
                 let node = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 6)
-                node.fillColor = SKColor.white.withAlphaComponent(0.18)
-                node.strokeColor = SKColor.white.withAlphaComponent(0.35)
-                node.lineWidth = 1
-                node.glowWidth = 1.5
+        node.fillColor = SKColor.white.withAlphaComponent(0.24)
+        node.strokeColor = SKColor.white.withAlphaComponent(0.5)
+        node.lineWidth = 1
+        node.glowWidth = 1.5
                 node.position = positionFor(row: row, col: col)
                 node.zPosition = 1
 
@@ -278,7 +279,7 @@ final class GameScene: SKScene {
         }
 
         cell.isRevealed = true
-        cell.node.fillColor = SKColor.white.withAlphaComponent(0.35)
+        cell.node.fillColor = SKColor.systemGray5.withAlphaComponent(0.9)
         revealedCount += 1
 
         if cell.hasMine {
@@ -316,7 +317,7 @@ final class GameScene: SKScene {
                             continue
                         }
                         neighbor.isRevealed = true
-                        neighbor.node.fillColor = SKColor.white.withAlphaComponent(0.35)
+                        neighbor.node.fillColor = SKColor.systemGray5.withAlphaComponent(0.9)
                         revealedCount += 1
                         if neighbor.hasMine {
                             neighbor.label.text = "💣"
@@ -344,19 +345,18 @@ final class GameScene: SKScene {
     private func endGame(didWin: Bool) {
         isGameOver = true
         statusLabel.text = didWin ? "你赢了！" : "踩到地雷了"
-        mineLabel.text = "返回开始界面"
+        mineLabel.text = "点击确定返回主界面"
         revealAllMines()
         updateLabelBackdrops()
-        showStartState()
-        uiDelegate?.gameSceneDidRequestStartMenu(self)
+        uiDelegate?.gameScene(self, didEndWithWin: didWin)
     }
 
     private func revealAllMines() {
         for row in cells {
             for cell in row where cell.hasMine {
                 cell.label.text = "💣"
-                cell.node.fillColor = SKColor.systemRed.withAlphaComponent(0.25)
-                cell.node.strokeColor = SKColor.systemRed.withAlphaComponent(0.4)
+                cell.node.fillColor = SKColor.systemRed.withAlphaComponent(0.3)
+                cell.node.strokeColor = SKColor.systemRed.withAlphaComponent(0.6)
             }
         }
     }
@@ -399,8 +399,6 @@ final class GameScene: SKScene {
             }
 
             if isGameOver {
-                showStartState()
-                uiDelegate?.gameSceneDidRequestStartMenu(self)
                 continue
             }
 
@@ -423,8 +421,8 @@ final class GameScene: SKScene {
     private func configureBackground() {
         backgroundNode.removeFromParent()
         let texture = gradientTexture(
-            start: UIColor(red: 0.84, green: 0.92, blue: 1.0, alpha: 1.0),
-            end: UIColor(red: 0.96, green: 0.98, blue: 1.0, alpha: 1.0)
+            start: UIColor(red: 0.76, green: 0.86, blue: 1.0, alpha: 1.0),
+            end: UIColor(red: 0.98, green: 0.99, blue: 1.0, alpha: 1.0)
         )
         backgroundNode = SKSpriteNode(texture: texture, size: size)
         backgroundNode.position = CGPoint(x: frame.midX, y: frame.midY)
