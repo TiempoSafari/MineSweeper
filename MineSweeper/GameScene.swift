@@ -120,7 +120,7 @@ final class GameScene: SKScene {
         cell.node.glowWidth = 0
     }
 
-    // MARK: - Neighbor Preview Highlight (按住数字格子，高亮周围)
+    // MARK: - Neighbor Preview Highlight (按住数字格，高亮周围)
 
     private let highlightOverlayName = "neighborPreviewOverlay"
     private var previewSourceByTouch: [ObjectIdentifier: Cell] = [:]
@@ -149,7 +149,6 @@ final class GameScene: SKScene {
         let overlayStroke = SKColor.white.withAlphaComponent(0.55)
 
         for cell in neighbors(of: source) {
-            // 防止重复叠加
             cell.node.childNode(withName: highlightOverlayName)?.removeFromParent()
 
             let overlay = SKShapeNode(
@@ -185,8 +184,36 @@ final class GameScene: SKScene {
 
     private func clearNeighborPreview(touchId: ObjectIdentifier) {
         previewSourceByTouch.removeValue(forKey: touchId)
-        // 单指操作为主：直接清全盘 overlay，最简单可靠
+        // 单指为主：清全盘 overlay 最简单可靠
         clearAllNeighborPreviewOverlays()
+    }
+
+    // MARK: - Chord (数字格自动翻开邻居)
+
+    private func flaggedNeighborCount(of cell: Cell) -> Int {
+        neighbors(of: cell).filter { $0.isFlagged }.count
+    }
+
+    private func chordReveal(from cell: Cell) {
+        guard !isWaitingForStart, !isGameOver else { return }
+        guard cell.isRevealed, !cell.hasMine, cell.adjacentMines > 0 else { return }
+
+        let flagged = flaggedNeighborCount(of: cell)
+        guard flagged == cell.adjacentMines else { return }
+
+        // ✅ 可选项：触发 chord 时震动反馈
+        feedbackGenerator.impactOccurred()
+        feedbackGenerator.prepare()
+
+        // 清掉预览 overlay（避免翻开过程叠层残留）
+        clearAllNeighborPreviewOverlays()
+
+        // 旗子数刚好：翻开周围所有“未插旗且未翻开”的格子
+        for n in neighbors(of: cell) {
+            if isGameOver { break }          // 可能翻到雷会结束
+            if n.isFlagged || n.isRevealed { continue }
+            reveal(cell: n)                  // 复用 reveal：旗子插错翻到雷照样结束流程
+        }
     }
 
     // MARK: - Lifecycle
@@ -389,7 +416,7 @@ final class GameScene: SKScene {
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
 
-        // 如果有高亮预览，翻开时先清掉
+        // 翻开时清掉高亮预览
         clearAllNeighborPreviewOverlays()
 
         if isFirstMove {
@@ -516,12 +543,13 @@ final class GameScene: SKScene {
             let identifier = ObjectIdentifier(touch)
             let location = touch.location(in: self)
 
-            // 新功能：按住数字格子 -> 周围高亮（按下立即出现）
+            // 数字格：按下立即显示预览高亮（并记录 startTime，但不启动翻开 timer）
             if !isWaitingForStart, !isGameOver,
                let c = cell(at: location),
                c.isRevealed, !c.hasMine, c.adjacentMines > 0 {
+
+                touchInfo[identifier] = LongPressState(startTime: touch.timestamp, location: location)
                 showNeighborPreview(for: c, touchId: identifier)
-                // 不启动长按翻开 timer
                 continue
             }
 
@@ -535,8 +563,7 @@ final class GameScene: SKScene {
                       self.isGameOver == false else {
                     return
                 }
-                let targetPoint = state.location
-                guard let targetCell = self.cell(at: targetPoint) else { return }
+                guard let targetCell = self.cell(at: state.location) else { return }
                 self.reveal(cell: targetCell)
             }
             touchRevealTimers[identifier] = timer
@@ -560,9 +587,15 @@ final class GameScene: SKScene {
             if isWaitingForStart || isGameOver { continue }
             guard let targetCell = cell(at: endPoint) else { continue }
 
-            // 短按：插旗（已翻开会被 toggleFlag guard 拦住）
+            // 短按逻辑：
+            // 1) 短按数字格 -> chord 自动翻开邻居（旗子数==数字）
+            // 2) 短按未翻开格 -> 插旗
             if duration < longPressThreshold {
-                toggleFlag(for: targetCell)
+                if targetCell.isRevealed, !targetCell.hasMine, targetCell.adjacentMines > 0 {
+                    chordReveal(from: targetCell)
+                } else {
+                    toggleFlag(for: targetCell)
+                }
             }
         }
     }
