@@ -12,6 +12,11 @@ import GameplayKit
 class GameViewController: UIViewController {
     private weak var gameScene: GameScene?
     private var startMenuView: UIVisualEffectView?
+    private let difficulties: [DifficultyOption] = [
+        DifficultyOption(title: "简单", rows: 8, cols: 8, mines: 10),
+        DifficultyOption(title: "中等", rows: 12, cols: 10, mines: 20),
+        DifficultyOption(title: "困难", rows: 16, cols: 12, mines: 35)
+    ]
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -90,7 +95,7 @@ extension GameViewController {
         buttonStack.axis = .vertical
         buttonStack.spacing = 12
 
-        GameScene.Difficulty.allCases.forEach { difficulty in
+        difficulties.forEach { difficulty in
             let button = glassButton(title: difficulty.title, action: #selector(startGame(_:)))
             button.accessibilityIdentifier = difficulty.title
             buttonStack.addArrangedSubview(button)
@@ -135,10 +140,17 @@ extension GameViewController {
 
     @objc private func startGame(_ sender: UIButton) {
         guard let title = sender.title(for: .normal),
-              let difficulty = GameScene.Difficulty.allCases.first(where: { $0.title == title }) else {
+              let difficulty = difficulties.first(where: { $0.title == title }) else {
             return
         }
-        gameScene?.startGame(difficulty: difficulty)
+        gameScene?.startGame(rows: difficulty.rows, cols: difficulty.cols, mines: difficulty.mines)
         startMenuView?.isHidden = true
     }
+}
+
+private struct DifficultyOption {
+    let title: String
+    let rows: Int
+    let cols: Int
+    let mines: Int
 }

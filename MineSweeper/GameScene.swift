@@ -9,6 +9,31 @@ import SpriteKit
 import GameplayKit
 
 final class GameScene: SKScene {
+    enum Difficulty: CaseIterable {
+        case easy
+        case medium
+        case hard
+
+        var title: String {
+            switch self {
+            case .easy: return "简单"
+            case .medium: return "中等"
+            case .hard: return "困难"
+            }
+        }
+
+        var configuration: (rows: Int, cols: Int, mines: Int) {
+            switch self {
+            case .easy:
+                return (8, 8, 10)
+            case .medium:
+                return (12, 10, 20)
+            case .hard:
+                return (16, 12, 35)
+            }
+        }
+    }
+
     struct TouchInfo {
         let startTime: TimeInterval
         let startPoint: CGPoint
@@ -42,9 +67,10 @@ final class GameScene: SKScene {
     private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
     private var boardOrigin = CGPoint.zero
     private var tileSize: CGFloat = 0
-    private var rows = 10
+    private var rows = 8
     private var cols = 8
     private var mineCount = 10
+    private var isWaitingForStart = true
     private var isFirstMove = true
     private var isGameOver = false
     private var revealedCount = 0
@@ -52,7 +78,7 @@ final class GameScene: SKScene {
     override func didMove(to view: SKView) {
         backgroundColor = SKColor.systemBackground
         configureLabels()
-        startNewGame()
+        showStartState()
     }
 
     private func configureLabels() {
@@ -78,20 +104,39 @@ final class GameScene: SKScene {
 
         isFirstMove = true
         isGameOver = false
+        isWaitingForStart = false
         revealedCount = 0
 
         statusLabel.text = "扫雷"
-        configureBoardDimensions()
         setupBoard()
         updateMineLabel()
     }
 
-    private func configureBoardDimensions() {
-        let minSide = min(size.width, size.height)
-        let suggestedRows = max(8, Int(minSide / 50))
-        rows = max(8, min(12, suggestedRows))
-        cols = max(8, min(12, suggestedRows))
-        mineCount = max(10, Int(Double(rows * cols) * 0.18))
+    func startGame(difficulty: Difficulty) {
+        let configuration = difficulty.configuration
+        rows = configuration.rows
+        cols = configuration.cols
+        mineCount = configuration.mines
+        startNewGame()
+    }
+
+    func startGame(rows: Int, cols: Int, mines: Int) {
+        self.rows = max(4, rows)
+        self.cols = max(4, cols)
+        mineCount = max(1, mines)
+        startNewGame()
+    }
+
+    private func showStartState() {
+        boardNode.removeFromParent()
+        boardNode = SKNode()
+        addChild(boardNode)
+        isWaitingForStart = true
+        isGameOver = false
+        isFirstMove = true
+        revealedCount = 0
+        statusLabel.text = "选择难度开始"
+        mineLabel.text = ""
     }
 
     private func setupBoard() {
@@ -297,6 +342,10 @@ final class GameScene: SKScene {
             guard let info = touchInfo.removeValue(forKey: identifier) else { continue }
             let endPoint = touch.location(in: self)
             let duration = touch.timestamp - info.startTime
+
+            if isWaitingForStart {
+                continue
+            }
 
             if isGameOver {
                 startNewGame()
