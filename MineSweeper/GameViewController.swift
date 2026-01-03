@@ -10,6 +10,8 @@ import SpriteKit
 import GameplayKit
 
 class GameViewController: UIViewController {
+    private weak var gameScene: GameScene?
+    private var startMenuView: UIVisualEffectView?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -36,6 +38,8 @@ class GameViewController: UIViewController {
                     
                     view.showsFPS = true
                     view.showsNodeCount = true
+                    gameScene = sceneNode
+                    configureStartMenu()
                 }
             }
         }
@@ -51,5 +55,90 @@ class GameViewController: UIViewController {
 
     override var prefersStatusBarHidden: Bool {
         return true
+    }
+}
+
+extension GameViewController {
+    private func configureStartMenu() {
+        guard let view = self.view else { return }
+
+        let blurEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        let blurView = UIVisualEffectView(effect: blurEffect)
+        blurView.translatesAutoresizingMaskIntoConstraints = false
+        blurView.layer.cornerRadius = 28
+        blurView.layer.masksToBounds = true
+        blurView.layer.borderWidth = 1
+        blurView.layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
+        blurView.backgroundColor = UIColor.white.withAlphaComponent(0.08)
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "扫雷"
+        titleLabel.font = UIFont.systemFont(ofSize: 30, weight: .semibold)
+        titleLabel.textColor = UIColor.label
+        titleLabel.textAlignment = .center
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.text = "选择难度开始游戏"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 16, weight: .regular)
+        subtitleLabel.textColor = UIColor.secondaryLabel
+        subtitleLabel.textAlignment = .center
+
+        let buttonStack = UIStackView()
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.axis = .vertical
+        buttonStack.spacing = 12
+
+        GameScene.Difficulty.allCases.forEach { difficulty in
+            let button = glassButton(title: difficulty.title, action: #selector(startGame(_:)))
+            button.accessibilityIdentifier = difficulty.title
+            buttonStack.addArrangedSubview(button)
+        }
+
+        let containerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, buttonStack])
+        containerStack.translatesAutoresizingMaskIntoConstraints = false
+        containerStack.axis = .vertical
+        containerStack.spacing = 16
+
+        blurView.contentView.addSubview(containerStack)
+        view.addSubview(blurView)
+
+        NSLayoutConstraint.activate([
+            blurView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            blurView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            blurView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.78),
+
+            containerStack.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: 24),
+            containerStack.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor, constant: -24),
+            containerStack.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor, constant: 20),
+            containerStack.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -20)
+        ])
+
+        startMenuView = blurView
+    }
+
+    private func glassButton(title: String, action: Selector) -> UIButton {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        button.tintColor = UIColor.label
+        button.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+        button.layer.cornerRadius = 18
+        button.layer.borderWidth = 1
+        button.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
+        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        button.addTarget(self, action: action, for: .touchUpInside)
+        return button
+    }
+
+    @objc private func startGame(_ sender: UIButton) {
+        guard let title = sender.title(for: .normal),
+              let difficulty = GameScene.Difficulty.allCases.first(where: { $0.title == title }) else {
+            return
+        }
+        gameScene?.startGame(difficulty: difficulty)
+        startMenuView?.isHidden = true
     }
 }
