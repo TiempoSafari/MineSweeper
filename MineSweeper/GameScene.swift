@@ -77,6 +77,8 @@ final class GameScene: SKScene {
     private var backgroundNode = SKSpriteNode()
     private var boardOrigin = CGPoint.zero
     private var tileSize: CGFloat = 0
+    private var gridSize = CGSize.zero
+    private let minTileSize: CGFloat = 36
     private var rows = 8
     private var cols = 8
     private var mineCount = 10
@@ -184,13 +186,15 @@ final class GameScene: SKScene {
     private func setupBoard() {
         let availableHeight = size.height - 140
         let boardSize = min(size.width - 40, availableHeight)
-        tileSize = floor(boardSize / CGFloat(max(rows, cols)))
+        tileSize = max(minTileSize, floor(boardSize / CGFloat(max(rows, cols))))
         let gridWidth = tileSize * CGFloat(cols)
         let gridHeight = tileSize * CGFloat(rows)
-        boardOrigin = CGPoint(
+        gridSize = CGSize(width: gridWidth, height: gridHeight)
+        boardOrigin = clampedBoardOrigin(proposed: CGPoint(
             x: frame.midX - gridWidth / 2,
             y: frame.midY - gridHeight / 2 - 20
-        )
+        ))
+        boardNode.position = boardOrigin
 
         cells = []
         for row in 0..<rows {
@@ -223,8 +227,8 @@ final class GameScene: SKScene {
 
     private func positionFor(row: Int, col: Int) -> CGPoint {
         CGPoint(
-            x: boardOrigin.x + CGFloat(col) * tileSize + tileSize / 2,
-            y: boardOrigin.y + CGFloat(rows - 1 - row) * tileSize + tileSize / 2
+            x: CGFloat(col) * tileSize + tileSize / 2,
+            y: CGFloat(rows - 1 - row) * tileSize + tileSize / 2
         )
     }
 
@@ -370,8 +374,9 @@ final class GameScene: SKScene {
     }
 
     private func cell(at point: CGPoint) -> Cell? {
-        let col = Int((point.x - boardOrigin.x) / tileSize)
-        let rowFromBottom = Int((point.y - boardOrigin.y) / tileSize)
+        let localPoint = convert(point, to: boardNode)
+        let col = Int(localPoint.x / tileSize)
+        let rowFromBottom = Int(localPoint.y / tileSize)
         let row = rows - 1 - rowFromBottom
         guard row >= 0, row < rows, col >= 0, col < cols else { return nil }
         return cells[row][col]
@@ -438,5 +443,36 @@ final class GameScene: SKScene {
             gradientLayer.render(in: context.cgContext)
         }
         return SKTexture(image: image)
+    }
+
+    private func clampedBoardOrigin(proposed: CGPoint) -> CGPoint {
+        let margin: CGFloat = 24
+        let viewWidth = size.width
+        let viewHeight = size.height
+
+        if gridSize.width <= viewWidth - margin * 2,
+           gridSize.height <= viewHeight - margin * 2 {
+            return CGPoint(
+                x: frame.midX - gridSize.width / 2,
+                y: frame.midY - gridSize.height / 2 - 20
+            )
+        }
+
+        let minX = frame.minX + margin - gridSize.width
+        let maxX = frame.maxX - margin
+        let minY = frame.minY + margin - gridSize.height
+        let maxY = frame.maxY - margin
+
+        return CGPoint(
+            x: min(max(proposed.x, minX), maxX),
+            y: min(max(proposed.y, minY), maxY)
+        )
+    }
+
+    func panBoard(by translation: CGPoint) {
+        guard !isWaitingForStart else { return }
+        let proposed = CGPoint(x: boardNode.position.x + translation.x, y: boardNode.position.y + translation.y)
+        let clamped = clampedBoardOrigin(proposed: proposed)
+        boardNode.position = clamped
     }
 }

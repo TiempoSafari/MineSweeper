@@ -15,6 +15,7 @@ class GameViewController: UIViewController {
     private var dimmingView: UIVisualEffectView?
     private var backgroundImageView: UIImageView?
     private var difficultyTableView: UITableView?
+    private var panGesture: UIPanGestureRecognizer?
     private let difficulties: [DifficultyOption] = [
         DifficultyOption(title: "简单", rows: 8, cols: 8, mines: 10),
         DifficultyOption(title: "中等", rows: 12, cols: 10, mines: 20),
@@ -49,6 +50,7 @@ class GameViewController: UIViewController {
                     gameScene = sceneNode
                     sceneNode.uiDelegate = self
                     configureStartMenu()
+                    configurePanGesture()
                 }
             }
         }
@@ -161,6 +163,23 @@ extension GameViewController {
         ])
 
         startMenuView = blurView
+    }
+
+    private func configurePanGesture() {
+        guard let view = self.view else { return }
+        let gesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        gesture.maximumNumberOfTouches = 1
+        view.addGestureRecognizer(gesture)
+        panGesture = gesture
+    }
+
+    @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
+        guard startMenuView?.isHidden == true else { return }
+        let translation = gesture.translation(in: view)
+        if gesture.state == .changed {
+            gameScene?.panBoard(by: translation)
+            gesture.setTranslation(.zero, in: view)
+        }
     }
 }
 
