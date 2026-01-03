@@ -2,25 +2,23 @@
 //  GameViewController.swift
 //  MineSweeper
 //
-//  Created by 山枫 on 2026/1/3.
+//  Updated: Center system difficulty alert + show bottom toolbar only in-game
 //
 
 import UIKit
 import SpriteKit
 import GameplayKit
 
-class GameViewController: UIViewController {
+final class GameViewController: UIViewController {
+
     private weak var gameScene: GameScene?
-    private var startMenuView: UIVisualEffectView?
-    private var dimmingView: UIVisualEffectView?
-    private var backgroundImageView: UIImageView?
-    private var difficultyTableView: UITableView?
     private var panGesture: UIPanGestureRecognizer?
+    private var bottomToolbar: UIToolbar?
 
     private let difficulties: [DifficultyOption] = [
-        DifficultyOption(title: "入门", rows: 9, cols: 9, mines: 10),
-        DifficultyOption(title: "简单", rows: 12, cols: 9, mines: 18),
-        DifficultyOption(title: "中等", rows: 16, cols: 9, mines: 30),
+        DifficultyOption(title: "入门", rows: 9,  cols: 9,  mines: 10),
+        DifficultyOption(title: "简单", rows: 12, cols: 9,  mines: 18),
+        DifficultyOption(title: "中等", rows: 16, cols: 9,  mines: 30),
         DifficultyOption(title: "困难", rows: 16, cols: 16, mines: 40),
         DifficultyOption(title: "专家", rows: 30, cols: 16, mines: 80),
         DifficultyOption(title: "大师", rows: 30, cols: 30, mines: 160)
@@ -29,31 +27,30 @@ class GameViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        if let scene = GKScene(fileNamed: "GameScene") {
-            if let sceneNode = scene.rootNode as! GameScene? {
-                sceneNode.entities = scene.entities
-                sceneNode.graphs = scene.graphs
-                sceneNode.scaleMode = .aspectFill
+        if let scene = GKScene(fileNamed: "GameScene"),
+           let sceneNode = scene.rootNode as? GameScene,
+           let skView = self.view as? SKView {
 
-                if let view = self.view as! SKView? {
-                    view.presentScene(sceneNode)
-                    view.ignoresSiblingOrder = true
-                    view.showsFPS = true
-                    view.showsNodeCount = true
+            sceneNode.entities = scene.entities
+            sceneNode.graphs = scene.graphs
+            sceneNode.scaleMode = .aspectFill
 
-                    gameScene = sceneNode
-                    sceneNode.uiDelegate = self
-                    configureStartMenu()
-                    configurePanGesture()
-                }
+            skView.presentScene(sceneNode)
+            skView.ignoresSiblingOrder = true
+            skView.showsFPS = true
+            skView.showsNodeCount = true
+
+            gameScene = sceneNode
+            sceneNode.uiDelegate = self
+
+            configurePanGesture()
+            configureBottomToolbar()
+            setToolbarVisible(false) // ✅ 初始隐藏：只有进入游戏后才显示
+
+            // ✅ 启动即弹出“居中系统弹窗”选择难度
+            DispatchQueue.main.async { [weak self] in
+                self?.presentDifficultyAlert()
             }
-        }
-    }
-
-    override func viewDidLayoutSubviews() {
-        super.viewDidLayoutSubviews()
-        if let backgroundImageView = backgroundImageView {
-            backgroundImageView.image = makeBackgroundImage(size: view.bounds.size)
         }
     }
 
@@ -65,102 +62,99 @@ class GameViewController: UIViewController {
         }
     }
 
-    override var prefersStatusBarHidden: Bool {
-        return true
+    override var prefersStatusBarHidden: Bool { true }
+}
+
+// MARK: - Difficulty (Center System Alert)
+
+extension GameViewController {
+    private func presentDifficultyAlert() {
+        // 避免重复弹
+        if presentedViewController != nil { return }
+
+        let alert = UIAlertController(
+            title: "扫雷",
+            message: "选择难度开始游戏",
+            preferredStyle: .alert
+        )
+
+        // 逐个难度作为系统 action（iOS 26 自动 Liquid Glass）
+        for opt in difficulties {
+            let action = UIAlertAction(title: opt.title, style: .default) { [weak self] _ in
+                self?.gameScene?.startGame(rows: opt.rows, cols: opt.cols, mines: opt.mines)
+            }
+            alert.addAction(action)
+        }
+
+        // 可选：给个“取消”（如果你希望必须选难度才能开始，也可以去掉）
+        // alert.addAction(UIAlertAction(title: "取消", style: .cancel))
+
+        present(alert, animated: true)
     }
 }
 
+// MARK: - Bottom Toolbar (Shown only in-game)
+
 extension GameViewController {
-    private func configureStartMenu() {
-        guard let view = self.view else { return }
-
-        let backgroundImage = UIImageView(image: makeBackgroundImage(size: view.bounds.size))
-        backgroundImage.translatesAutoresizingMaskIntoConstraints = false
-        backgroundImage.contentMode = .scaleAspectFill
-        view.addSubview(backgroundImage)
-        view.sendSubviewToBack(backgroundImage)
+    private func configureBottomToolbar() {
+        let tb = UIToolbar()
+        tb.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(tb)
 
         NSLayoutConstraint.activate([
-            backgroundImage.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            backgroundImage.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            backgroundImage.topAnchor.constraint(equalTo: view.topAnchor),
-            backgroundImage.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-        backgroundImageView = backgroundImage
-
-        let backdropEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-        let backdropView = UIVisualEffectView(effect: backdropEffect)
-        backdropView.translatesAutoresizingMaskIntoConstraints = false
-        backdropView.alpha = 0.65
-        view.addSubview(backdropView)
-
-        NSLayoutConstraint.activate([
-            backdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            backdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            backdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            backdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
-        ])
-        dimmingView = backdropView
-
-        let blurEffect = UIBlurEffect(style: .systemThinMaterial)
-        let blurView = UIVisualEffectView(effect: blurEffect)
-        blurView.translatesAutoresizingMaskIntoConstraints = false
-        blurView.layer.cornerRadius = 30
-        blurView.layer.masksToBounds = true
-        blurView.layer.borderWidth = 1
-        blurView.layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
-        blurView.backgroundColor = UIColor.white.withAlphaComponent(0.08)
-
-        let titleLabel = UILabel()
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-        titleLabel.text = "扫雷"
-        titleLabel.font = UIFont.systemFont(ofSize: 30, weight: .semibold)
-        titleLabel.textColor = UIColor.label
-        titleLabel.textAlignment = .center
-
-        let subtitleLabel = UILabel()
-        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.text = "选择难度开始游戏"
-        subtitleLabel.font = UIFont.systemFont(ofSize: 16, weight: .regular)
-        subtitleLabel.textColor = UIColor.secondaryLabel
-        subtitleLabel.textAlignment = .center
-
-        let tableView = UITableView(frame: .zero, style: .insetGrouped)
-        tableView.translatesAutoresizingMaskIntoConstraints = false
-        tableView.backgroundColor = UIColor.clear
-        tableView.separatorStyle = .none
-        tableView.dataSource = self
-        tableView.delegate = self
-        tableView.rowHeight = 56
-        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "DifficultyCell")
-        difficultyTableView = tableView
-
-        let containerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, tableView])
-        containerStack.translatesAutoresizingMaskIntoConstraints = false
-        containerStack.axis = .vertical
-        containerStack.spacing = 16
-
-        blurView.contentView.addSubview(containerStack)
-        view.addSubview(blurView)
-
-        NSLayoutConstraint.activate([
-            blurView.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            blurView.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            blurView.widthAnchor.constraint(equalTo: view.widthAnchor, multiplier: 0.78),
-
-            containerStack.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: 24),
-            containerStack.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor, constant: -24),
-            containerStack.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor, constant: 20),
-            containerStack.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -20),
-
-            tableView.heightAnchor.constraint(equalToConstant: CGFloat(difficulties.count) * 58)
+            tb.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            tb.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            tb.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
         ])
 
-        startMenuView = blurView
+        // ✅ 三个占位功能选项（先占位，你后面再定义功能）
+        let item1 = UIBarButtonItem(
+            title: "功能1",
+            image: UIImage(systemName: "circle.grid.2x2"),
+            primaryAction: UIAction { _ in
+                // TODO: 占位
+            }
+        )
+
+        let item2 = UIBarButtonItem(
+            title: "功能2",
+            image: UIImage(systemName: "wand.and.stars"),
+            primaryAction: UIAction { _ in
+                // TODO: 占位
+            }
+        )
+
+        let item3 = UIBarButtonItem(
+            title: "功能3",
+            image: UIImage(systemName: "gearshape"),
+            primaryAction: UIAction { _ in
+                // TODO: 占位
+            }
+        )
+
+        let spacer = UIBarButtonItem(systemItem: .flexibleSpace)
+        tb.setItems([item1, spacer, item2, spacer, item3], animated: false)
+
+        // 系统外观（iOS 26 会自动用新材质语言）
+        let appearance = UIToolbarAppearance()
+        appearance.configureWithDefaultBackground()
+        appearance.backgroundEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        tb.standardAppearance = appearance
+        tb.scrollEdgeAppearance = appearance
+
+        bottomToolbar = tb
     }
 
+    private func setToolbarVisible(_ visible: Bool) {
+        bottomToolbar?.isHidden = !visible
+        bottomToolbar?.isUserInteractionEnabled = visible
+    }
+}
+
+// MARK: - Pan Gesture
+
+extension GameViewController {
     private func configurePanGesture() {
-        guard let view = self.view else { return }
         let gesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         gesture.maximumNumberOfTouches = 1
         view.addGestureRecognizer(gesture)
@@ -168,12 +162,15 @@ extension GameViewController {
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        guard startMenuView?.isHidden == true else { return }
+        // 弹窗在时不允许拖拽
+        if presentedViewController != nil { return }
+        // 菜单状态（没开始）也不允许拖拽（toolbar 隐藏代表未开始/结束态）
+        if bottomToolbar?.isHidden != false { return }
+
         guard let view = self.view else { return }
 
         switch gesture.state {
         case .began:
-            // ✅ 开始拖拽时立即停止惯性
             gameScene?.stopInertiaPan()
 
         case .changed:
@@ -182,7 +179,6 @@ extension GameViewController {
             gesture.setTranslation(.zero, in: view)
 
         case .ended, .cancelled, .failed:
-            // ✅ 松手后根据速度给一点点惯性（不会太多）
             let velocity = gesture.velocity(in: view)
             gameScene?.startInertiaPan(initialVelocity: velocity)
 
@@ -192,99 +188,36 @@ extension GameViewController {
     }
 }
 
+// MARK: - GameSceneDelegate
+
 extension GameViewController: GameSceneDelegate {
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
-        startMenuView?.isHidden = false
-        dimmingView?.isHidden = false
-        difficultyTableView?.isHidden = false
-        backgroundImageView?.isHidden = false
+        // 回到“开始界面”：隐藏底部栏 + 弹出居中难度选择
+        setToolbarVisible(false)
+        presentDifficultyAlert()
     }
 
     func gameSceneDidStartGame(_ scene: GameScene) {
-        startMenuView?.isHidden = true
-        dimmingView?.isHidden = true
-        difficultyTableView?.isHidden = true
-        backgroundImageView?.isHidden = true
+        // ✅ 进入游戏后才显示底部“系统导航栏”
+        setToolbarVisible(true)
     }
 
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool) {
         let title = didWin ? "扫雷成功" : "扫雷失败"
         let message = didWin ? "恭喜你清除了所有地雷。" : "你踩到了地雷。"
+
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { [weak self] _ in
-            guard let self = self else { return }
             scene.showStartState()
-            self.gameSceneDidRequestStartMenu(scene)
+            self?.setToolbarVisible(false)
+            self?.presentDifficultyAlert()
         }))
+
         present(alert, animated: true)
     }
 }
 
-extension GameViewController: UITableViewDataSource, UITableViewDelegate {
-    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
-        difficulties.count
-    }
-
-    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "DifficultyCell", for: indexPath)
-        let difficulty = difficulties[indexPath.row]
-        var content = UIListContentConfiguration.cell()
-        content.text = difficulty.title
-        content.textProperties.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
-        content.textProperties.color = UIColor.label
-        content.textProperties.alignment = .center
-        cell.contentConfiguration = content
-
-        var background = UIBackgroundConfiguration.clear()
-        background.visualEffect = UIBlurEffect(style: .systemUltraThinMaterial)
-        background.backgroundColor = UIColor.white.withAlphaComponent(0.15)
-        background.strokeColor = UIColor.white.withAlphaComponent(0.25)
-        background.strokeWidth = 1
-        background.cornerRadius = 18
-        cell.backgroundConfiguration = background
-        cell.selectionStyle = .none
-        return cell
-    }
-
-    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
-        let difficulty = difficulties[indexPath.row]
-        gameScene?.startGame(rows: difficulty.rows, cols: difficulty.cols, mines: difficulty.mines)
-        startMenuView?.isHidden = true
-        dimmingView?.isHidden = true
-        difficultyTableView?.isHidden = true
-        backgroundImageView?.isHidden = true
-        tableView.deselectRow(at: indexPath, animated: true)
-    }
-}
-
-private extension GameViewController {
-    func makeBackgroundImage(size: CGSize) -> UIImage {
-        let renderer = UIGraphicsImageRenderer(size: size)
-        return renderer.image { context in
-            let rect = CGRect(origin: .zero, size: size)
-            let colors = [
-                UIColor(red: 0.98, green: 0.65, blue: 0.2, alpha: 1).cgColor,
-                UIColor(red: 0.32, green: 0.67, blue: 1.0, alpha: 1).cgColor
-            ]
-            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1])!
-            context.cgContext.drawLinearGradient(gradient, start: CGPoint(x: 0, y: 0), end: CGPoint(x: size.width, y: size.height), options: [])
-
-            let circleColors = [
-                UIColor(red: 1, green: 0.45, blue: 0.15, alpha: 0.9),
-                UIColor(red: 0.2, green: 0.5, blue: 0.95, alpha: 0.8)
-            ]
-            for (index, color) in circleColors.enumerated() {
-                let radius = min(size.width, size.height) * (index == 0 ? 0.35 : 0.25)
-                let center = CGPoint(x: size.width * (index == 0 ? 0.2 : 0.85), y: size.height * (index == 0 ? 0.2 : 0.8))
-                context.cgContext.setFillColor(color.cgColor)
-                context.cgContext.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
-                context.cgContext.fillPath()
-            }
-
-            _ = rect
-        }
-    }
-}
+// MARK: - Models
 
 private struct DifficultyOption {
     let title: String
