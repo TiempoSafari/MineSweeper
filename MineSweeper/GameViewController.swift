@@ -2,7 +2,7 @@
 //  GameViewController.swift
 //  MineSweeper
 //
-//  System difficulty alert + system UITabBar + system Liquid-Glass HUD overlay
+//  System alert difficulty + system UITabBar + system Liquid-Glass HUD overlay
 //
 
 import UIKit
@@ -14,15 +14,14 @@ final class GameViewController: UIViewController {
     private weak var gameScene: GameScene?
     private var panGesture: UIPanGestureRecognizer?
 
-    // ✅ 系统级底部导航（iOS 26 自动 Liquid Glass）
+    // 系统级底部导航（iOS 26 自动 Liquid Glass）
     private var systemTabBar: UITabBar?
 
-    // ✅ 系统级 HUD（iOS 26 自动 Liquid Glass）
+    // 系统级 HUD（iOS 26 自动 Liquid Glass）
     private var hudView: UIVisualEffectView?
     private var hudTitleLabel: UILabel?
     private var hudSubtitleLabel: UILabel?
 
-    // 记录上次选择的难度，用于 HUD 展示
     private var currentDifficulty: DifficultyOption?
 
     private let difficulties: [DifficultyOption] = [
@@ -60,7 +59,6 @@ final class GameViewController: UIViewController {
             setSystemTabBarVisible(false, animated: false)
             setHUDVisible(false, animated: false)
 
-            // 启动：弹系统居中难度选择（iOS 26 自动 Liquid Glass）
             DispatchQueue.main.async { [weak self] in
                 self?.presentDifficultyAlert()
             }
@@ -75,17 +73,16 @@ final class GameViewController: UIViewController {
     override var prefersStatusBarHidden: Bool { true }
 }
 
-// MARK: - System Difficulty Alert (center, no extra tip capsule, icons)
+// MARK: - Difficulty Alert (system)
 
 extension GameViewController {
 
     private func presentDifficultyAlert() {
-        // 避免重复弹
         if presentedViewController != nil { return }
 
         let alert = UIAlertController(
             title: "扫雷",
-            message: nil,                 // ✅ 去掉“选择难度开始” & 下面的小胶囊
+            message: nil,          // ✅ 去掉“选择难度开始”& 小胶囊
             preferredStyle: .alert
         )
 
@@ -94,16 +91,16 @@ extension GameViewController {
                 guard let self else { return }
                 self.currentDifficulty = opt
 
-                // 开局 HUD 内容先更新（真正显示在 didStartGame）
+                // 先写入 HUD 基础信息（标记数会通过 delegate 实时更新）
                 self.updateHUD(
                     title: "扫雷",
-                    subtitle: "\(opt.title) · \(opt.rows)×\(opt.cols) · 雷 \(opt.mines)"
+                    subtitle: "\(opt.title) · \(opt.rows)×\(opt.cols) · 雷 \(opt.mines) · 标记 0"
                 )
 
                 self.gameScene?.startGame(rows: opt.rows, cols: opt.cols, mines: opt.mines)
             }
 
-            // ✅ 线条图标（SF Symbols）
+            // ✅ UIAlertAction 没有公开 image 属性，用 KVC 注入
             action.setSystemIcon(UIImage(systemName: opt.icon))
 
             alert.addAction(action)
@@ -113,7 +110,7 @@ extension GameViewController {
     }
 }
 
-// MARK: - System UITabBar (shown only in-game)
+// MARK: - System UITabBar (in-game only)
 
 extension GameViewController {
 
@@ -122,14 +119,12 @@ extension GameViewController {
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         tabBar.delegate = self
 
-        // 三个占位项
         let item1 = UITabBarItem(title: "功能1", image: UIImage(systemName: "circle.grid.2x2"), tag: 0)
         let item2 = UITabBarItem(title: "功能2", image: UIImage(systemName: "wand.and.stars"), tag: 1)
         let item3 = UITabBarItem(title: "功能3", image: UIImage(systemName: "gearshape"), tag: 2)
         tabBar.items = [item1, item2, item3]
         tabBar.selectedItem = item2
 
-        // ✅ 用系统默认外观（让 iOS 26 自动 Liquid Glass）
         let appearance = UITabBarAppearance()
         appearance.configureWithDefaultBackground()
         tabBar.standardAppearance = appearance
@@ -155,10 +150,7 @@ extension GameViewController {
             return
         }
 
-        if visible {
-            tabBar.isHidden = false
-        }
-
+        if visible { tabBar.isHidden = false }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
             tabBar.alpha = visible ? 1 : 0
         } completion: { _ in
@@ -167,22 +159,18 @@ extension GameViewController {
     }
 }
 
-// MARK: - System HUD (UIVisualEffectView, shown only in-game)
+// MARK: - System HUD (Liquid Glass via system material)
 
 extension GameViewController {
 
     private func configureSystemHUD() {
-        // 系统材质（iOS 26 自动 Liquid Glass）
         let effect = UIBlurEffect(style: .systemUltraThinMaterial)
         let hud = UIVisualEffectView(effect: effect)
         hud.translatesAutoresizingMaskIntoConstraints = false
         hud.isUserInteractionEnabled = false
 
-        // 胶囊形态
         hud.layer.cornerRadius = 18
         hud.layer.masksToBounds = true
-
-        // 很轻的边缘高光（不影响系统材质）
         hud.layer.borderWidth = 0.8
         hud.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
 
@@ -244,7 +232,6 @@ extension GameViewController {
         }
 
         if visible { hud.isHidden = false }
-
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
             hud.alpha = visible ? 1 : 0
         } completion: { _ in
@@ -253,7 +240,7 @@ extension GameViewController {
     }
 }
 
-// MARK: - Pan Gesture (Board drag + inertia)
+// MARK: - Pan Gesture
 
 extension GameViewController {
 
@@ -265,9 +252,7 @@ extension GameViewController {
     }
 
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
-        // 弹窗在时不拖拽
         if presentedViewController != nil { return }
-        // 不在游戏中（TabBar 隐藏）不拖拽
         if systemTabBar?.isHidden != false { return }
 
         guard let view = self.view else { return }
@@ -302,13 +287,18 @@ extension GameViewController: GameSceneDelegate {
     }
 
     func gameSceneDidStartGame(_ scene: GameScene) {
-        // 进入游戏才显示系统 HUD + 系统 TabBar
         setSystemTabBarVisible(true, animated: true)
         setHUDVisible(true, animated: true)
+    }
 
-        // 如果还没设置 subtitle，就用一个默认值
-        if currentDifficulty == nil {
-            updateHUD(title: "扫雷", subtitle: "")
+    func gameScene(_ scene: GameScene, didUpdateFlagCount flagged: Int, mineCount: Int) {
+        if let opt = currentDifficulty {
+            updateHUD(
+                title: "扫雷",
+                subtitle: "\(opt.title) · \(opt.rows)×\(opt.cols) · 雷 \(mineCount) · 标记 \(flagged)"
+            )
+        } else {
+            updateHUD(title: "扫雷", subtitle: "雷 \(mineCount) · 标记 \(flagged)")
         }
     }
 
@@ -359,11 +349,10 @@ private struct DifficultyOption {
     let icon: String
 }
 
+// MARK: - UIAlertAction icon helper (KVC)
+
 private extension UIAlertAction {
     func setSystemIcon(_ image: UIImage?) {
-        // UIAlertAction 没有公开 image 属性，这里用 KVC
         self.setValue(image, forKey: "image")
-        // 可选：设一下图标颜色（不设也可以，让系统自己处理）
-        // self.setValue(UIColor.label, forKey: "imageTintColor")
     }
 }

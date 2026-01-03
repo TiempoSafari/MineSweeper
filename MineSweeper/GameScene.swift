@@ -2,8 +2,6 @@
 //  GameScene.swift
 //  MineSweeper
 //
-//  Created by 山枫 on 2026/1/3.
-//
 
 import SpriteKit
 import GameplayKit
@@ -13,6 +11,9 @@ protocol GameSceneDelegate: AnyObject {
     func gameSceneDidRequestStartMenu(_ scene: GameScene)
     func gameSceneDidStartGame(_ scene: GameScene)
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool)
+
+    // ✅ 新增：旗子数量更新（用于 UIKit HUD）
+    func gameScene(_ scene: GameScene, didUpdateFlagCount flagged: Int, mineCount: Int)
 }
 
 final class GameScene: SKScene {
@@ -78,10 +79,12 @@ final class GameScene: SKScene {
 
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
 
+    // 旧 HUD（SpriteKit）— 现在永久隐藏（UIKit HUD 接管）
     private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
     private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
     private var statusBackground = SKShapeNode()
     private var mineBackground = SKShapeNode()
+
     private var backgroundNode = SKSpriteNode()
 
     private var boardOrigin = CGPoint.zero
@@ -98,25 +101,20 @@ final class GameScene: SKScene {
     private var isGameOver = false
     private var revealedCount = 0
 
-    // MARK: - Inertia Pan (轻微惯性) —— 更像 UIScrollView
+    // MARK: - Inertia Pan (UIScrollView-like decay)
 
-    private var inertiaVelocity = CGPoint.zero      // points/sec (UIKit 坐标系速度)
+    private var inertiaVelocity = CGPoint.zero      // points/sec (UIKit coords)
     private var lastUpdateTime: TimeInterval = 0
 
-    // 惯性强度：越小停得越快（UIScrollView decelerationRate 的思路）
-    private let inertiaDecelerationRate: CGFloat = 0.86   // 0.82~0.90 都可以微调
-    private let inertiaVelocityScale: CGFloat = 0.22      // 0.18~0.25：越大惯性越明显
+    private let inertiaDecelerationRate: CGFloat = 0.84   // 更快停、更顺滑（0.82~0.90可调）
+    private let inertiaVelocityScale: CGFloat = 0.22
     private let inertiaMaxSpeed: CGFloat = 1600
-    private let inertiaEpsilon: CGFloat = 6               // 很小的速度才停（避免硬切顿挫）
+    private let inertiaEpsilon: CGFloat = 6
 
-    func stopInertiaPan() {
-        inertiaVelocity = .zero
-    }
+    func stopInertiaPan() { inertiaVelocity = .zero }
 
     func startInertiaPan(initialVelocity: CGPoint) {
         guard !isWaitingForStart, !isGameOver else { return }
-
-        // 重置，避免第一帧 dt 偶发偏大导致突变
         lastUpdateTime = 0
 
         var v = CGPoint(x: initialVelocity.x * inertiaVelocityScale,
@@ -130,7 +128,6 @@ final class GameScene: SKScene {
         }
         inertiaVelocity = v
     }
-
 
     // MARK: - Visual Palette (增强未翻开/已翻开对比)
 
@@ -154,7 +151,7 @@ final class GameScene: SKScene {
         cell.node.glowWidth = 0
     }
 
-    // MARK: - Neighbor Preview Highlight (按住数字格，高亮周围)
+    // MARK: - Neighbor Preview Highlight
 
     private let highlightOverlayName = "neighborPreviewOverlay"
     private var previewSourceByTouch: [ObjectIdentifier: Cell] = [:]
@@ -254,6 +251,10 @@ final class GameScene: SKScene {
         configureLabels()
         childNode(withName: "//helloLabel")?.removeFromParent()
         feedbackGenerator.prepare()
+
+        // ✅ 永久隐藏旧 HUD（避免你截图红圈那块）
+        setLegacyHUDVisible(false)
+
         showStartState()
     }
 
@@ -266,7 +267,7 @@ final class GameScene: SKScene {
         var dt = currentTime - lastUpdateTime
         lastUpdateTime = currentTime
 
-        // dt 防抖：避免某一帧卡顿导致移动/衰减突变
+        // dt 防抖
         dt = min(dt, 1.0 / 30.0)
 
         guard !isWaitingForStart, !isGameOver else {
@@ -280,19 +281,24 @@ final class GameScene: SKScene {
             return
         }
 
-        // 先移动
         let translation = CGPoint(x: inertiaVelocity.x * CGFloat(dt),
                                   y: inertiaVelocity.y * CGFloat(dt))
         panBoard(by: translation)
 
-        // 再衰减（UIScrollView 风格：按帧率幂衰减，曲线更“物理”）
         let frames = CGFloat(dt) * 60.0
         let decay = pow(inertiaDecelerationRate, frames)
         inertiaVelocity.x *= decay
         inertiaVelocity.y *= decay
     }
 
-    // MARK: - Labels UI
+    // MARK: - Legacy HUD (SpriteKit) — permanently hidden
+
+    private func setLegacyHUDVisible(_ visible: Bool) {
+        statusLabel.isHidden = !visible
+        mineLabel.isHidden = !visible
+        statusBackground.isHidden = !visible
+        mineBackground.isHidden = !visible
+    }
 
     private func configureLabels() {
         statusLabel.fontSize = 26
@@ -335,28 +341,32 @@ final class GameScene: SKScene {
         mineBackground = labelBackdrop(for: mineLabel, horizontalPadding: 20, verticalPadding: 10)
         addChild(statusBackground)
         addChild(mineBackground)
+
+        // ✅ 仍保持隐藏（防止重建后又出现）
+        setLegacyHUDVisible(false)
     }
 
     // MARK: - Game Flow
 
     private func startNewGame() {
         stopInertiaPan()
+        clearAllNeighborPreviewOverlays()
+
+        // ✅ 旧 HUD 永久隐藏
+        setLegacyHUDVisible(false)
 
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
-
-        clearAllNeighborPreviewOverlays()
 
         isFirstMove = true
         isGameOver = false
         isWaitingForStart = false
         revealedCount = 0
 
-        statusLabel.text = "扫雷"
-        updateLabelBackdrops()
         setupBoard()
-        updateMineLabel()
+        updateMineLabel() // 这会触发 flag count 回调给 VC
+
         uiDelegate?.gameSceneDidStartGame(self)
     }
 
@@ -377,20 +387,19 @@ final class GameScene: SKScene {
 
     func showStartState() {
         stopInertiaPan()
+        clearAllNeighborPreviewOverlays()
+
+        // ✅ 旧 HUD 永久隐藏
+        setLegacyHUDVisible(false)
 
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
 
-        clearAllNeighborPreviewOverlays()
-
         isWaitingForStart = true
         isGameOver = false
         isFirstMove = true
         revealedCount = 0
-        statusLabel.text = "选择难度开始"
-        mineLabel.text = ""
-        updateLabelBackdrops()
     }
 
     // MARK: - Board Setup
@@ -442,43 +451,43 @@ final class GameScene: SKScene {
         )
     }
 
-    // MARK: - Mines
+    // MARK: - Mines (first move must chain open)
 
     private func updateMineLabel() {
         let flagged = cells.flatMap { $0 }.filter { $0.isFlagged }.count
+
+        // 旧 HUD 虽然隐藏，但仍保留逻辑（无害）
         mineLabel.text = "地雷: \(mineCount)  标记: \(flagged)"
         updateLabelBackdrops()
+
+        // ✅ 推送给 UIKit HUD
+        uiDelegate?.gameScene(self, didUpdateFlagCount: flagged, mineCount: mineCount)
     }
 
-    private func placeMines(excluding cell: Cell) {
-        // 1) 首次点击：排除“首格 + 周围8格”，保证首格 adjacentMines == 0
-        var excluded = Set<Int>()
+    private func placeMines(excluding firstCell: Cell) {
+        // ✅ 首翻必须连锁：排除首格 + 周围8格，保证首格 adjacentMines == 0
         func key(_ r: Int, _ c: Int) -> Int { r * cols + c }
-
-        excluded.insert(key(cell.row, cell.col))
-        for n in neighbors(of: cell) {
+        var excluded = Set<Int>()
+        excluded.insert(key(firstCell.row, firstCell.col))
+        for n in neighbors(of: firstCell) {
             excluded.insert(key(n.row, n.col))
         }
 
-        // 2) 计算可放雷格子
-        var available = cells.flatMap { $0 }.filter {
-            !excluded.contains(key($0.row, $0.col))
-        }
+        var available = cells.flatMap { $0 }.filter { !excluded.contains(key($0.row, $0.col)) }
 
-        // 3) 兜底：如果雷数太多导致可用格不足，则只保证“首格不为雷”
+        // 兜底：如果雷太多导致不足，就至少保证首格不为雷
         if available.count < mineCount {
-            excluded = [key(cell.row, cell.col)]
+            excluded = [key(firstCell.row, firstCell.col)]
             available = cells.flatMap { $0 }.filter { !excluded.contains(key($0.row, $0.col)) }
         }
 
-        // 4) 清理旧雷（理论上新局面都是 false，但这里更稳）
-        for row in 0..<rows {
-            for col in 0..<cols {
-                cells[row][col].hasMine = false
+        // 清雷
+        for r in 0..<rows {
+            for c in 0..<cols {
+                cells[r][c].hasMine = false
             }
         }
 
-        // 5) 随机放雷
         let randomSource = GKARC4RandomSource()
         randomSource.dropValues(32)
         let shuffled = randomSource.arrayByShufflingObjects(in: available) as? [Cell] ?? available
@@ -487,14 +496,12 @@ final class GameScene: SKScene {
             mineCell.hasMine = true
         }
 
-        // 6) 计算周围雷数
-        for row in 0..<rows {
-            for col in 0..<cols {
-                cells[row][col].adjacentMines = countAdjacentMines(row: row, col: col)
+        for r in 0..<rows {
+            for c in 0..<cols {
+                cells[r][c].adjacentMines = countAdjacentMines(row: r, col: c)
             }
         }
     }
-
 
     private func countAdjacentMines(row: Int, col: Int) -> Int {
         var count = 0
@@ -515,7 +522,6 @@ final class GameScene: SKScene {
 
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
-
         clearAllNeighborPreviewOverlays()
 
         if isFirstMove {
@@ -525,8 +531,8 @@ final class GameScene: SKScene {
 
         cell.isRevealed = true
         applyRevealedStyle(to: cell)
-
         revealedCount += 1
+
         feedbackGenerator.impactOccurred()
         feedbackGenerator.prepare()
 
@@ -566,7 +572,6 @@ final class GameScene: SKScene {
 
                         neighbor.isRevealed = true
                         applyRevealedStyle(to: neighbor)
-
                         revealedCount += 1
 
                         if neighbor.hasMine {
@@ -596,14 +601,14 @@ final class GameScene: SKScene {
 
     private func endGame(didWin: Bool) {
         stopInertiaPan()
-
         isGameOver = true
-        clearAllNeighborPreviewOverlays()
 
-        statusLabel.text = didWin ? "你赢了！" : "踩到地雷了"
-        mineLabel.text = "点击确定返回主界面"
+        clearAllNeighborPreviewOverlays()
         revealAllMines()
-        updateLabelBackdrops()
+
+        // 旧 HUD 永久隐藏
+        setLegacyHUDVisible(false)
+
         uiDelegate?.gameScene(self, didEndWithWin: didWin)
     }
 
@@ -639,13 +644,13 @@ final class GameScene: SKScene {
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        // 手指开始操作时，停掉惯性（避免“边滑边点”）
         stopInertiaPan()
 
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
             let location = touch.location(in: self)
 
+            // 数字格：按下显示预览（不启动翻开 timer）
             if !isWaitingForStart, !isGameOver,
                let c = cell(at: location),
                c.isRevealed, !c.hasMine, c.adjacentMines > 0 {
@@ -760,7 +765,7 @@ final class GameScene: SKScene {
     func panBoard(by translation: CGPoint) {
         guard !isWaitingForStart else { return }
         let proposed = CGPoint(x: boardNode.position.x + translation.x,
-                               y: boardNode.position.y - translation.y) // 注意这里 y 方向与 UIKit 相反
+                               y: boardNode.position.y - translation.y) // UIKit Y 反向
         let clamped = clampedBoardOrigin(proposed: proposed)
         boardNode.position = clamped
     }
