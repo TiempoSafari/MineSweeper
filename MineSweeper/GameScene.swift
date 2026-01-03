@@ -66,7 +66,13 @@ final class GameScene: SKScene {
 
     private var boardNode = SKNode()
     private var cells: [[Cell]] = []
-    private var touchInfo: [ObjectIdentifier: TimeInterval] = [:]
+    private struct LongPressState {
+        let startTime: TimeInterval
+        let location: CGPoint
+    }
+
+    private var touchInfo: [ObjectIdentifier: LongPressState] = [:]
+    private var touchRevealTimers: [ObjectIdentifier: Timer] = [:]
     private let longPressThreshold: TimeInterval = 0.4
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
     private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
@@ -385,8 +391,10 @@ final class GameScene: SKScene {
         for touch in touches {
             let endPoint = touch.location(in: self)
             let identifier = ObjectIdentifier(touch)
-            let startTime = touchInfo.removeValue(forKey: identifier) ?? touch.timestamp
-            let duration = touch.timestamp - startTime
+            touchRevealTimers[identifier]?.invalidate()
+            touchRevealTimers.removeValue(forKey: identifier)
+            let startState = touchInfo.removeValue(forKey: identifier)
+            let duration = touch.timestamp - (startState?.startTime ?? touch.timestamp)
 
             if isWaitingForStart {
                 continue
@@ -397,9 +405,7 @@ final class GameScene: SKScene {
             }
 
             guard let targetCell = cell(at: endPoint) else { continue }
-            if duration >= longPressThreshold {
-                reveal(cell: targetCell)
-            } else {
+            if duration < longPressThreshold {
                 toggleFlag(for: targetCell)
             }
         }
@@ -409,13 +415,28 @@ final class GameScene: SKScene {
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
             touchInfo.removeValue(forKey: identifier)
+            touchRevealTimers[identifier]?.invalidate()
+            touchRevealTimers.removeValue(forKey: identifier)
         }
     }
 
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
-            touchInfo[identifier] = touch.timestamp
+            let location = touch.location(in: self)
+            touchInfo[identifier] = LongPressState(startTime: touch.timestamp, location: location)
+            let timer = Timer.scheduledTimer(withTimeInterval: longPressThreshold, repeats: false) { [weak self] _ in
+                guard let self = self,
+                      let state = self.touchInfo[identifier],
+                      self.isWaitingForStart == false,
+                      self.isGameOver == false else {
+                    return
+                }
+                let targetPoint = state.location
+                guard let targetCell = self.cell(at: targetPoint) else { return }
+                self.reveal(cell: targetCell)
+            }
+            touchRevealTimers[identifier] = timer
         }
     }
 
