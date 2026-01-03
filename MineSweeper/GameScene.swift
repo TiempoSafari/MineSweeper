@@ -40,11 +40,6 @@ final class GameScene: SKScene {
         }
     }
 
-    struct TouchInfo {
-        let startTime: TimeInterval
-        let startPoint: CGPoint
-    }
-
     final class Cell {
         let row: Int
         let col: Int
@@ -70,7 +65,8 @@ final class GameScene: SKScene {
 
     private var boardNode = SKNode()
     private var cells: [[Cell]] = []
-    private var touchInfo: [ObjectIdentifier: TouchInfo] = [:]
+    private var lastTapTime: TimeInterval = 0
+    private var lastTapCell: Cell?
     private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
     private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
     private var statusBackground = SKShapeNode()
@@ -200,8 +196,8 @@ final class GameScene: SKScene {
             var rowCells: [Cell] = []
             for col in 0..<cols {
                 let node = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 6)
-        node.fillColor = SKColor.white.withAlphaComponent(0.24)
-        node.strokeColor = SKColor.white.withAlphaComponent(0.5)
+                node.fillColor = SKColor.systemTeal.withAlphaComponent(0.28)
+                node.strokeColor = SKColor.systemTeal.withAlphaComponent(0.6)
         node.lineWidth = 1
         node.glowWidth = 1.5
                 node.position = positionFor(row: row, col: col)
@@ -279,7 +275,7 @@ final class GameScene: SKScene {
         }
 
         cell.isRevealed = true
-        cell.node.fillColor = SKColor.systemGray5.withAlphaComponent(0.9)
+        cell.node.fillColor = SKColor.systemMint.withAlphaComponent(0.22)
         revealedCount += 1
 
         if cell.hasMine {
@@ -317,7 +313,7 @@ final class GameScene: SKScene {
                             continue
                         }
                         neighbor.isRevealed = true
-                        neighbor.node.fillColor = SKColor.systemGray5.withAlphaComponent(0.9)
+                        neighbor.node.fillColor = SKColor.systemMint.withAlphaComponent(0.22)
                         revealedCount += 1
                         if neighbor.hasMine {
                             neighbor.label.text = "💣"
@@ -380,19 +376,9 @@ final class GameScene: SKScene {
         return cells[row][col]
     }
 
-    override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches {
-            let identifier = ObjectIdentifier(touch)
-            touchInfo[identifier] = TouchInfo(startTime: touch.timestamp, startPoint: touch.location(in: self))
-        }
-    }
-
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
-            let identifier = ObjectIdentifier(touch)
-            guard let info = touchInfo.removeValue(forKey: identifier) else { continue }
             let endPoint = touch.location(in: self)
-            let duration = touch.timestamp - info.startTime
 
             if isWaitingForStart {
                 continue
@@ -403,19 +389,32 @@ final class GameScene: SKScene {
             }
 
             guard let targetCell = cell(at: endPoint) else { continue }
-            if duration > 0.35 {
-                toggleFlag(for: targetCell)
-            } else {
+            if isDoubleTap(on: targetCell, at: touch.timestamp) {
                 reveal(cell: targetCell)
+            } else {
+                toggleFlag(for: targetCell)
             }
         }
     }
 
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches {
-            let identifier = ObjectIdentifier(touch)
-            touchInfo.removeValue(forKey: identifier)
+        lastTapCell = nil
+    }
+
+    private func isDoubleTap(on cell: Cell, at timestamp: TimeInterval) -> Bool {
+        let threshold: TimeInterval = 0.28
+        if let lastCell = lastTapCell,
+           lastCell.row == cell.row,
+           lastCell.col == cell.col,
+           timestamp - lastTapTime <= threshold {
+            lastTapCell = nil
+            lastTapTime = 0
+            return true
         }
+
+        lastTapCell = cell
+        lastTapTime = timestamp
+        return false
     }
 
     private func configureBackground() {
