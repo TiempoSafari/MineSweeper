@@ -451,19 +451,50 @@ final class GameScene: SKScene {
     }
 
     private func placeMines(excluding cell: Cell) {
-        let available = cells.flatMap { $0 }.filter { $0.row != cell.row || $0.col != cell.col }
+        // 1) 首次点击：排除“首格 + 周围8格”，保证首格 adjacentMines == 0
+        var excluded = Set<Int>()
+        func key(_ r: Int, _ c: Int) -> Int { r * cols + c }
+
+        excluded.insert(key(cell.row, cell.col))
+        for n in neighbors(of: cell) {
+            excluded.insert(key(n.row, n.col))
+        }
+
+        // 2) 计算可放雷格子
+        var available = cells.flatMap { $0 }.filter {
+            !excluded.contains(key($0.row, $0.col))
+        }
+
+        // 3) 兜底：如果雷数太多导致可用格不足，则只保证“首格不为雷”
+        if available.count < mineCount {
+            excluded = [key(cell.row, cell.col)]
+            available = cells.flatMap { $0 }.filter { !excluded.contains(key($0.row, $0.col)) }
+        }
+
+        // 4) 清理旧雷（理论上新局面都是 false，但这里更稳）
+        for row in 0..<rows {
+            for col in 0..<cols {
+                cells[row][col].hasMine = false
+            }
+        }
+
+        // 5) 随机放雷
         let randomSource = GKARC4RandomSource()
         randomSource.dropValues(32)
         let shuffled = randomSource.arrayByShufflingObjects(in: available) as? [Cell] ?? available
+
         for mineCell in shuffled.prefix(mineCount) {
             mineCell.hasMine = true
         }
+
+        // 6) 计算周围雷数
         for row in 0..<rows {
             for col in 0..<cols {
                 cells[row][col].adjacentMines = countAdjacentMines(row: row, col: col)
             }
         }
     }
+
 
     private func countAdjacentMines(row: Int, col: Int) -> Int {
         var count = 0
