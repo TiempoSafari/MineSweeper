@@ -66,6 +66,7 @@ final class GameScene: SKScene {
 
     private var boardNode = SKNode()
     private var cells: [[Cell]] = []
+
     private struct LongPressState {
         let startTime: TimeInterval
         let location: CGPoint
@@ -74,23 +75,121 @@ final class GameScene: SKScene {
     private var touchInfo: [ObjectIdentifier: LongPressState] = [:]
     private var touchRevealTimers: [ObjectIdentifier: Timer] = [:]
     private let longPressThreshold: TimeInterval = 0.4
+
     private let feedbackGenerator = UIImpactFeedbackGenerator(style: .medium)
+
     private var statusLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
     private var mineLabel = SKLabelNode(fontNamed: "HelveticaNeue")
     private var statusBackground = SKShapeNode()
     private var mineBackground = SKShapeNode()
     private var backgroundNode = SKSpriteNode()
+
     private var boardOrigin = CGPoint.zero
     private var tileSize: CGFloat = 0
     private var gridSize = CGSize.zero
     private let tileSizeFixed: CGFloat = 66
+
     private var rows = 8
     private var cols = 8
     private var mineCount = 10
+
     private var isWaitingForStart = true
     private var isFirstMove = true
     private var isGameOver = false
     private var revealedCount = 0
+
+    // MARK: - Visual Palette (增强未翻开/已翻开对比)
+
+    private let unrevealedFill = SKColor.systemTeal.withAlphaComponent(0.42)
+    private let unrevealedStroke = SKColor.systemTeal.withAlphaComponent(0.95)
+
+    private let revealedFill = SKColor.white.withAlphaComponent(0.70)
+    private let revealedStroke = SKColor.systemGray.withAlphaComponent(0.35)
+
+    private func applyUnrevealedStyle(to cell: Cell) {
+        cell.node.fillColor = unrevealedFill
+        cell.node.strokeColor = unrevealedStroke
+        cell.node.lineWidth = 1
+        cell.node.glowWidth = 1.5
+    }
+
+    private func applyRevealedStyle(to cell: Cell) {
+        cell.node.fillColor = revealedFill
+        cell.node.strokeColor = revealedStroke
+        cell.node.lineWidth = 1
+        cell.node.glowWidth = 0
+    }
+
+    // MARK: - Neighbor Preview Highlight (按住数字格子，高亮周围)
+
+    private let highlightOverlayName = "neighborPreviewOverlay"
+    private var previewSourceByTouch: [ObjectIdentifier: Cell] = [:]
+
+    private func neighbors(of cell: Cell) -> [Cell] {
+        var result: [Cell] = []
+        for dr in -1...1 {
+            for dc in -1...1 {
+                if dr == 0 && dc == 0 { continue }
+                let r = cell.row + dr
+                let c = cell.col + dc
+                if r >= 0 && r < rows && c >= 0 && c < cols {
+                    result.append(cells[r][c])
+                }
+            }
+        }
+        return result
+    }
+
+    private func showNeighborPreview(for source: Cell, touchId: ObjectIdentifier) {
+        clearNeighborPreview(touchId: touchId)
+        previewSourceByTouch[touchId] = source
+
+        // 美观：柔光描边 + 半透明叠层（旗子格更克制：只描边不填充）
+        let overlayFill = SKColor.white.withAlphaComponent(0.12)
+        let overlayStroke = SKColor.white.withAlphaComponent(0.55)
+
+        for cell in neighbors(of: source) {
+            // 防止重复叠加
+            cell.node.childNode(withName: highlightOverlayName)?.removeFromParent()
+
+            let overlay = SKShapeNode(
+                rectOf: CGSize(width: tileSize - 6, height: tileSize - 6),
+                cornerRadius: 8
+            )
+            overlay.name = highlightOverlayName
+            overlay.fillColor = cell.isFlagged ? .clear : overlayFill
+            overlay.strokeColor = overlayStroke
+            overlay.lineWidth = 2
+            overlay.glowWidth = 6
+            overlay.zPosition = 3
+            overlay.alpha = 0.85
+
+            let pulse = SKAction.sequence([
+                SKAction.fadeAlpha(to: 1.0, duration: 0.25),
+                SKAction.fadeAlpha(to: 0.75, duration: 0.25)
+            ])
+            overlay.run(SKAction.repeatForever(pulse))
+
+            cell.node.addChild(overlay)
+        }
+    }
+
+    private func clearAllNeighborPreviewOverlays() {
+        for row in cells {
+            for cell in row {
+                cell.node.childNode(withName: highlightOverlayName)?.removeFromParent()
+            }
+        }
+        previewSourceByTouch.removeAll()
+    }
+
+    private func clearNeighborPreview(touchId: ObjectIdentifier) {
+        previewSourceByTouch.removeValue(forKey: touchId)
+        // 单指操作为主：直接清全盘 overlay，最简单可靠
+        clearAllNeighborPreviewOverlays()
+    }
+
+    // MARK: - Lifecycle
 
     override func didMove(to view: SKView) {
         backgroundColor = SKColor.systemBackground
@@ -100,6 +199,8 @@ final class GameScene: SKScene {
         feedbackGenerator.prepare()
         showStartState()
     }
+
+    // MARK: - Labels UI
 
     private func configureLabels() {
         statusLabel.fontSize = 26
@@ -144,10 +245,14 @@ final class GameScene: SKScene {
         addChild(mineBackground)
     }
 
+    // MARK: - Game Flow
+
     private func startNewGame() {
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
+
+        clearAllNeighborPreviewOverlays()
 
         isFirstMove = true
         isGameOver = false
@@ -180,6 +285,9 @@ final class GameScene: SKScene {
         boardNode.removeFromParent()
         boardNode = SKNode()
         addChild(boardNode)
+
+        clearAllNeighborPreviewOverlays()
+
         isWaitingForStart = true
         isGameOver = false
         isFirstMove = true
@@ -188,6 +296,8 @@ final class GameScene: SKScene {
         mineLabel.text = ""
         updateLabelBackdrops()
     }
+
+    // MARK: - Board Setup
 
     private func setupBoard() {
         tileSize = tileSizeFixed
@@ -204,11 +314,10 @@ final class GameScene: SKScene {
         for row in 0..<rows {
             var rowCells: [Cell] = []
             for col in 0..<cols {
-                let node = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 6)
-                node.fillColor = SKColor.systemTeal.withAlphaComponent(0.28)
-                node.strokeColor = SKColor.systemTeal.withAlphaComponent(0.6)
-        node.lineWidth = 1
-        node.glowWidth = 1.5
+                let node = SKShapeNode(
+                    rectOf: CGSize(width: tileSize - 2, height: tileSize - 2),
+                    cornerRadius: 6
+                )
                 node.position = positionFor(row: row, col: col)
                 node.zPosition = 1
 
@@ -223,6 +332,7 @@ final class GameScene: SKScene {
 
                 boardNode.addChild(node)
                 let cell = Cell(row: row, col: col, node: node, label: label)
+                applyUnrevealedStyle(to: cell)
                 rowCells.append(cell)
             }
             cells.append(rowCells)
@@ -236,6 +346,8 @@ final class GameScene: SKScene {
         )
     }
 
+    // MARK: - Mines
+
     private func updateMineLabel() {
         let flagged = cells.flatMap { $0 }.filter { $0.isFlagged }.count
         mineLabel.text = "地雷: \(mineCount)  标记: \(flagged)"
@@ -243,7 +355,7 @@ final class GameScene: SKScene {
     }
 
     private func placeMines(excluding cell: Cell) {
-        var available = cells.flatMap { $0 }.filter { $0.row != cell.row || $0.col != cell.col }
+        let available = cells.flatMap { $0 }.filter { $0.row != cell.row || $0.col != cell.col }
         let randomSource = GKARC4RandomSource()
         randomSource.dropValues(32)
         let shuffled = randomSource.arrayByShufflingObjects(in: available) as? [Cell] ?? available
@@ -261,30 +373,33 @@ final class GameScene: SKScene {
         var count = 0
         for dr in -1...1 {
             for dc in -1...1 {
-                if dr == 0 && dc == 0 {
-                    continue
-                }
+                if dr == 0 && dc == 0 { continue }
                 let r = row + dr
                 let c = col + dc
                 if r >= 0 && r < rows && c >= 0 && c < cols {
-                    if cells[r][c].hasMine {
-                        count += 1
-                    }
+                    if cells[r][c].hasMine { count += 1 }
                 }
             }
         }
         return count
     }
 
+    // MARK: - Reveal / Flag
+
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
+
+        // 如果有高亮预览，翻开时先清掉
+        clearAllNeighborPreviewOverlays()
+
         if isFirstMove {
             placeMines(excluding: cell)
             isFirstMove = false
         }
 
         cell.isRevealed = true
-        cell.node.fillColor = SKColor.systemMint.withAlphaComponent(0.22)
+        applyRevealedStyle(to: cell)
+
         revealedCount += 1
         feedbackGenerator.impactOccurred()
         feedbackGenerator.prepare()
@@ -314,18 +429,20 @@ final class GameScene: SKScene {
         while index < queue.count {
             let current = queue[index]
             index += 1
+
             for dr in -1...1 {
                 for dc in -1...1 {
                     let r = current.row + dr
                     let c = current.col + dc
                     if r >= 0 && r < rows && c >= 0 && c < cols {
                         let neighbor = cells[r][c]
-                        if neighbor.isRevealed || neighbor.isFlagged {
-                            continue
-                        }
+                        if neighbor.isRevealed || neighbor.isFlagged { continue }
+
                         neighbor.isRevealed = true
-                        neighbor.node.fillColor = SKColor.systemMint.withAlphaComponent(0.22)
+                        applyRevealedStyle(to: neighbor)
+
                         revealedCount += 1
+
                         if neighbor.hasMine {
                             neighbor.label.text = "💣"
                         } else if neighbor.adjacentMines > 0 {
@@ -349,8 +466,13 @@ final class GameScene: SKScene {
         updateMineLabel()
     }
 
+    // MARK: - End Game
+
     private func endGame(didWin: Bool) {
         isGameOver = true
+
+        clearAllNeighborPreviewOverlays()
+
         statusLabel.text = didWin ? "你赢了！" : "踩到地雷了"
         mineLabel.text = "点击确定返回主界面"
         revealAllMines()
@@ -378,6 +500,8 @@ final class GameScene: SKScene {
         }
     }
 
+    // MARK: - Touch Handling
+
     private func cell(at point: CGPoint) -> Cell? {
         let localPoint = convert(point, to: boardNode)
         let col = Int(localPoint.x / tileSize)
@@ -387,44 +511,23 @@ final class GameScene: SKScene {
         return cells[row][col]
     }
 
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches {
-            let endPoint = touch.location(in: self)
-            let identifier = ObjectIdentifier(touch)
-            touchRevealTimers[identifier]?.invalidate()
-            touchRevealTimers.removeValue(forKey: identifier)
-            let startState = touchInfo.removeValue(forKey: identifier)
-            let duration = touch.timestamp - (startState?.startTime ?? touch.timestamp)
-
-            if isWaitingForStart {
-                continue
-            }
-
-            if isGameOver {
-                continue
-            }
-
-            guard let targetCell = cell(at: endPoint) else { continue }
-            if duration < longPressThreshold {
-                toggleFlag(for: targetCell)
-            }
-        }
-    }
-
-    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
-        for touch in touches {
-            let identifier = ObjectIdentifier(touch)
-            touchInfo.removeValue(forKey: identifier)
-            touchRevealTimers[identifier]?.invalidate()
-            touchRevealTimers.removeValue(forKey: identifier)
-        }
-    }
-
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
             let location = touch.location(in: self)
+
+            // 新功能：按住数字格子 -> 周围高亮（按下立即出现）
+            if !isWaitingForStart, !isGameOver,
+               let c = cell(at: location),
+               c.isRevealed, !c.hasMine, c.adjacentMines > 0 {
+                showNeighborPreview(for: c, touchId: identifier)
+                // 不启动长按翻开 timer
+                continue
+            }
+
+            // 原逻辑：记录并启动 long-press reveal timer
             touchInfo[identifier] = LongPressState(startTime: touch.timestamp, location: location)
+
             let timer = Timer.scheduledTimer(withTimeInterval: longPressThreshold, repeats: false) { [weak self] _ in
                 guard let self = self,
                       let state = self.touchInfo[identifier],
@@ -439,6 +542,44 @@ final class GameScene: SKScene {
             touchRevealTimers[identifier] = timer
         }
     }
+
+    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            let endPoint = touch.location(in: self)
+            let identifier = ObjectIdentifier(touch)
+
+            // 松手：恢复预览
+            clearNeighborPreview(touchId: identifier)
+
+            touchRevealTimers[identifier]?.invalidate()
+            touchRevealTimers.removeValue(forKey: identifier)
+
+            let startState = touchInfo.removeValue(forKey: identifier)
+            let duration = touch.timestamp - (startState?.startTime ?? touch.timestamp)
+
+            if isWaitingForStart || isGameOver { continue }
+            guard let targetCell = cell(at: endPoint) else { continue }
+
+            // 短按：插旗（已翻开会被 toggleFlag guard 拦住）
+            if duration < longPressThreshold {
+                toggleFlag(for: targetCell)
+            }
+        }
+    }
+
+    override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
+        for touch in touches {
+            let identifier = ObjectIdentifier(touch)
+
+            clearNeighborPreview(touchId: identifier)
+
+            touchInfo.removeValue(forKey: identifier)
+            touchRevealTimers[identifier]?.invalidate()
+            touchRevealTimers.removeValue(forKey: identifier)
+        }
+    }
+
+    // MARK: - Background / Board Pan
 
     private func configureBackground() {
         backgroundNode.removeFromParent()
