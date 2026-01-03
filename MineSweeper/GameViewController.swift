@@ -13,6 +13,8 @@ class GameViewController: UIViewController {
     private weak var gameScene: GameScene?
     private var startMenuView: UIVisualEffectView?
     private var dimmingView: UIVisualEffectView?
+    private var backgroundImageView: UIImageView?
+    private var difficultyTableView: UITableView?
     private let difficulties: [DifficultyOption] = [
         DifficultyOption(title: "简单", rows: 8, cols: 8, mines: 10),
         DifficultyOption(title: "中等", rows: 12, cols: 10, mines: 20),
@@ -69,10 +71,24 @@ extension GameViewController {
     private func configureStartMenu() {
         guard let view = self.view else { return }
 
+        let backgroundImage = UIImageView(image: makeBackgroundImage(size: view.bounds.size))
+        backgroundImage.translatesAutoresizingMaskIntoConstraints = false
+        backgroundImage.contentMode = .scaleAspectFill
+        view.addSubview(backgroundImage)
+        view.sendSubviewToBack(backgroundImage)
+
+        NSLayoutConstraint.activate([
+            backgroundImage.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            backgroundImage.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            backgroundImage.topAnchor.constraint(equalTo: view.topAnchor),
+            backgroundImage.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        backgroundImageView = backgroundImage
+
         let backdropEffect = UIBlurEffect(style: .systemUltraThinMaterial)
         let backdropView = UIVisualEffectView(effect: backdropEffect)
         backdropView.translatesAutoresizingMaskIntoConstraints = false
-        backdropView.alpha = 0.7
+        backdropView.alpha = 0.65
         view.addSubview(backdropView)
 
         NSLayoutConstraint.activate([
@@ -81,13 +97,12 @@ extension GameViewController {
             backdropView.topAnchor.constraint(equalTo: view.topAnchor),
             backdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
         ])
-
         dimmingView = backdropView
 
         let blurEffect = UIBlurEffect(style: .systemThinMaterial)
         let blurView = UIVisualEffectView(effect: blurEffect)
         blurView.translatesAutoresizingMaskIntoConstraints = false
-        blurView.layer.cornerRadius = 28
+        blurView.layer.cornerRadius = 30
         blurView.layer.masksToBounds = true
         blurView.layer.borderWidth = 1
         blurView.layer.borderColor = UIColor.white.withAlphaComponent(0.35).cgColor
@@ -107,18 +122,17 @@ extension GameViewController {
         subtitleLabel.textColor = UIColor.secondaryLabel
         subtitleLabel.textAlignment = .center
 
-        let buttonStack = UIStackView()
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        buttonStack.axis = .vertical
-        buttonStack.spacing = 12
+        let tableView = UITableView(frame: .zero, style: .insetGrouped)
+        tableView.translatesAutoresizingMaskIntoConstraints = false
+        tableView.backgroundColor = UIColor.clear
+        tableView.separatorStyle = .none
+        tableView.dataSource = self
+        tableView.delegate = self
+        tableView.rowHeight = 56
+        tableView.register(UITableViewCell.self, forCellReuseIdentifier: "DifficultyCell")
+        difficultyTableView = tableView
 
-        difficulties.forEach { difficulty in
-            let button = glassButton(title: difficulty.title, action: #selector(startGame(_:)))
-            button.accessibilityIdentifier = difficulty.title
-            buttonStack.addArrangedSubview(button)
-        }
-
-        let containerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, buttonStack])
+        let containerStack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, tableView])
         containerStack.translatesAutoresizingMaskIntoConstraints = false
         containerStack.axis = .vertical
         containerStack.spacing = 16
@@ -134,35 +148,12 @@ extension GameViewController {
             containerStack.topAnchor.constraint(equalTo: blurView.contentView.topAnchor, constant: 24),
             containerStack.bottomAnchor.constraint(equalTo: blurView.contentView.bottomAnchor, constant: -24),
             containerStack.leadingAnchor.constraint(equalTo: blurView.contentView.leadingAnchor, constant: 20),
-            containerStack.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -20)
+            containerStack.trailingAnchor.constraint(equalTo: blurView.contentView.trailingAnchor, constant: -20),
+
+            tableView.heightAnchor.constraint(equalToConstant: CGFloat(difficulties.count) * 58)
         ])
 
         startMenuView = blurView
-    }
-
-    private func glassButton(title: String, action: Selector) -> UIButton {
-        let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
-        button.setTitle(title, for: .normal)
-        button.titleLabel?.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
-        button.tintColor = UIColor.label
-        button.backgroundColor = UIColor.white.withAlphaComponent(0.2)
-        button.layer.cornerRadius = 18
-        button.layer.borderWidth = 1
-        button.layer.borderColor = UIColor.white.withAlphaComponent(0.3).cgColor
-        button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-        button.addTarget(self, action: action, for: .touchUpInside)
-        return button
-    }
-
-    @objc private func startGame(_ sender: UIButton) {
-        guard let title = sender.title(for: .normal),
-              let difficulty = difficulties.first(where: { $0.title == title }) else {
-            return
-        }
-        gameScene?.startGame(rows: difficulty.rows, cols: difficulty.cols, mines: difficulty.mines)
-        startMenuView?.isHidden = true
-        dimmingView?.isHidden = true
     }
 }
 
@@ -175,6 +166,68 @@ extension GameViewController: GameSceneDelegate {
     func gameSceneDidStartGame(_ scene: GameScene) {
         startMenuView?.isHidden = true
         dimmingView?.isHidden = true
+    }
+}
+
+extension GameViewController: UITableViewDataSource, UITableViewDelegate {
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int {
+        difficulties.count
+    }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "DifficultyCell", for: indexPath)
+        let difficulty = difficulties[indexPath.row]
+        var content = UIListContentConfiguration.cell()
+        content.text = difficulty.title
+        content.textProperties.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+        content.textProperties.color = UIColor.label
+        content.textProperties.alignment = .center
+        cell.contentConfiguration = content
+
+        var background = UIBackgroundConfiguration.clear()
+        background.visualEffect = UIBlurEffect(style: .systemUltraThinMaterial)
+        background.backgroundColor = UIColor.white.withAlphaComponent(0.15)
+        background.strokeColor = UIColor.white.withAlphaComponent(0.25)
+        background.strokeWidth = 1
+        background.cornerRadius = 18
+        cell.backgroundConfiguration = background
+        cell.selectionStyle = .none
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, didSelectRowAt indexPath: IndexPath) {
+        let difficulty = difficulties[indexPath.row]
+        gameScene?.startGame(rows: difficulty.rows, cols: difficulty.cols, mines: difficulty.mines)
+        startMenuView?.isHidden = true
+        dimmingView?.isHidden = true
+        tableView.deselectRow(at: indexPath, animated: true)
+    }
+}
+
+private extension GameViewController {
+    func makeBackgroundImage(size: CGSize) -> UIImage {
+        let renderer = UIGraphicsImageRenderer(size: size)
+        return renderer.image { context in
+            let rect = CGRect(origin: .zero, size: size)
+            let colors = [
+                UIColor(red: 0.98, green: 0.65, blue: 0.2, alpha: 1).cgColor,
+                UIColor(red: 0.32, green: 0.67, blue: 1.0, alpha: 1).cgColor
+            ]
+            let gradient = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors as CFArray, locations: [0, 1])!
+            context.cgContext.drawLinearGradient(gradient, start: CGPoint(x: 0, y: 0), end: CGPoint(x: size.width, y: size.height), options: [])
+
+            let circleColors = [
+                UIColor(red: 1, green: 0.45, blue: 0.15, alpha: 0.9),
+                UIColor(red: 0.2, green: 0.5, blue: 0.95, alpha: 0.8)
+            ]
+            for (index, color) in circleColors.enumerated() {
+                let radius = min(size.width, size.height) * (index == 0 ? 0.35 : 0.25)
+                let center = CGPoint(x: size.width * (index == 0 ? 0.2 : 0.85), y: size.height * (index == 0 ? 0.2 : 0.8))
+                context.cgContext.setFillColor(color.cgColor)
+                context.cgContext.addEllipse(in: CGRect(x: center.x - radius, y: center.y - radius, width: radius * 2, height: radius * 2))
+                context.cgContext.fillPath()
+            }
+        }
     }
 }
 
