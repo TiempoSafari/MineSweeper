@@ -17,7 +17,9 @@ protocol GameSceneDelegate: AnyObject {
 }
 
 /// SpriteKit 游戏场景，承载棋盘逻辑与渲染。
+// MARK: - GameScene
 final class GameScene: SKScene {
+    // MARK: Types
     enum Difficulty: CaseIterable {
         case easy
         case medium
@@ -65,6 +67,7 @@ final class GameScene: SKScene {
         }
     }
 
+    // MARK: Properties
     var entities = [GKEntity]()
     var graphs = [String: GKGraph]()
 

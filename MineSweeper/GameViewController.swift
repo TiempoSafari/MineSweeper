@@ -3,8 +3,11 @@ import SpriteKit
 import GameplayKit
 
 /// 游戏主界面控制器，负责加载 SpriteKit 场景并管理 UIKit HUD/TabBar。
+// MARK: - GameViewController
+
 final class GameViewController: UIViewController {
 
+    // MARK: Properties
     /// 当前呈现的游戏场景（由 SKView 持有，这里弱引用避免循环）。
     private weak var gameScene: GameScene?
     /// 手势：用于拖拽棋盘（带惯性）。
@@ -30,6 +33,8 @@ final class GameViewController: UIViewController {
         DifficultyOption(title: "专家", rows: 30, cols: 16, mines: 80, icon: "flame"),
         DifficultyOption(title: "大师", rows: 30, cols: 30, mines: 160, icon: "crown")
     ]
+
+    // MARK: Lifecycle
 
     /// 加载场景并初始化 UIKit 组件。
     override func viewDidLoad() {
