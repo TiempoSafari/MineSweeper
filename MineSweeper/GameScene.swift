@@ -69,6 +69,7 @@ final class GameScene: SKScene {
         }
     }
 
+
     // MARK: Properties
     var entities = [GKEntity]()
     var graphs = [String: GKGraph]()
@@ -221,6 +222,7 @@ final class GameScene: SKScene {
 
         cell.node.addChild(overlay)
     }
+
 
     /// 生成玻璃质感纹理，并按 key 缓存复用。
     private func glassTileTexture(
@@ -748,7 +750,6 @@ final class GameScene: SKScene {
     /// 翻开单个格子，并处理胜负判断。
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
-
         if isFirstMove {
             placeMines(excluding: cell)
             isFirstMove = false
