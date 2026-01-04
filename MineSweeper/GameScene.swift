@@ -313,11 +313,9 @@ final class GameScene: SKScene {
     private let hintOverlayName = "hintOverlay"
 
     struct HintSuggestion {
-        let source: Cell
+        let sources: [Cell]
         let targets: [Cell]
-        let mineCount: Int
-        let flaggedCount: Int
-        let unknownCount: Int
+        let reasonedMineCount: Int
     }
 
     /// 获取指定格子的八邻域。
@@ -395,9 +393,13 @@ final class GameScene: SKScene {
 
     private func showHintHighlight(for suggestion: HintSuggestion) {
         clearHintHighlight()
-        let highlightCells = [suggestion.source] + suggestion.targets
+        var highlighted = Set<ObjectIdentifier>()
 
-        for cell in highlightCells {
+        func addOverlay(to cell: Cell, color: SKColor) {
+            let identifier = ObjectIdentifier(cell)
+            guard !highlighted.contains(identifier) else { return }
+            highlighted.insert(identifier)
+
             cell.node.childNode(withName: hintOverlayName)?.removeFromParent()
             let overlay = SKShapeNode(
                 rectOf: CGSize(width: tileSize - 4, height: tileSize - 4),
@@ -405,11 +407,18 @@ final class GameScene: SKScene {
             )
             overlay.name = hintOverlayName
             overlay.fillColor = .clear
-            overlay.strokeColor = SKColor.systemOrange
+            overlay.strokeColor = color
             overlay.lineWidth = 4
             overlay.glowWidth = 6
             overlay.zPosition = 4
             cell.node.addChild(overlay)
+        }
+
+        for cell in suggestion.sources {
+            addOverlay(to: cell, color: SKColor.systemOrange)
+        }
+        for cell in suggestion.targets {
+            addOverlay(to: cell, color: SKColor.systemRed)
         }
     }
 
@@ -824,28 +833,58 @@ final class GameScene: SKScene {
     func requestHintSuggestion() -> HintSuggestion? {
         guard !isWaitingForStart, !isGameOver else { return nil }
 
-        for row in cells {
-            for cell in row {
-                guard cell.isRevealed, !cell.hasMine, cell.adjacentMines > 0 else { continue }
-                let neighborCells = neighbors(of: cell)
-                let flagged = neighborCells.filter { $0.isFlagged }.count
-                let unknown = neighborCells.filter { !$0.isRevealed && !$0.isFlagged }
-                let remaining = cell.adjacentMines - flagged
-                guard remaining > 0, remaining == unknown.count else { continue }
+        var inferredMines: [Cell] = []
+        var inferredMineIds = Set<ObjectIdentifier>()
+        var sources: [Cell] = []
+        var sourceIds = Set<ObjectIdentifier>()
+        var didInfer = true
 
-                let suggestion = HintSuggestion(
-                    source: cell,
-                    targets: unknown,
-                    mineCount: cell.adjacentMines,
-                    flaggedCount: flagged,
-                    unknownCount: unknown.count
-                )
-                showHintHighlight(for: suggestion)
-                return suggestion
+        while didInfer {
+            didInfer = false
+            for row in cells {
+                for cell in row {
+                    guard cell.isRevealed, !cell.hasMine, cell.adjacentMines > 0 else { continue }
+                    let neighborCells = neighbors(of: cell)
+                    let flagged = neighborCells.filter { neighbor in
+                        neighbor.isFlagged || inferredMineIds.contains(ObjectIdentifier(neighbor))
+                    }.count
+                    let unknown = neighborCells.filter { neighbor in
+                        !neighbor.isRevealed
+                            && !neighbor.isFlagged
+                            && !inferredMineIds.contains(ObjectIdentifier(neighbor))
+                    }
+                    let remaining = cell.adjacentMines - flagged
+                    guard remaining > 0, remaining == unknown.count else { continue }
+
+                    var addedMine = false
+                    for neighbor in unknown {
+                        let identifier = ObjectIdentifier(neighbor)
+                        if inferredMineIds.insert(identifier).inserted {
+                            inferredMines.append(neighbor)
+                            addedMine = true
+                        }
+                    }
+
+                    if addedMine {
+                        let sourceId = ObjectIdentifier(cell)
+                        if sourceIds.insert(sourceId).inserted {
+                            sources.append(cell)
+                        }
+                        didInfer = true
+                    }
+                }
             }
         }
 
-        return nil
+        guard !inferredMines.isEmpty else { return nil }
+
+        let suggestion = HintSuggestion(
+            sources: sources,
+            targets: inferredMines,
+            reasonedMineCount: inferredMines.count
+        )
+        showHintHighlight(for: suggestion)
+        return suggestion
     }
 
     func applyHintSuggestion(_ suggestion: HintSuggestion) {
