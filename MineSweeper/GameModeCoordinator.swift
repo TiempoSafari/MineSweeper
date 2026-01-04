@@ -14,9 +14,13 @@ protocol GameModeCoordinating: AnyObject {
 
     func didSelect()
     func didDeselect()
+    func resetSelection()
+    func updateHUDForFlags(flagged: Int, mineCount: Int)
 }
 
 extension GameModeCoordinating {
     func didSelect() {}
     func didDeselect() {}
+    func resetSelection() {}
+    func updateHUDForFlags(flagged: Int, mineCount: Int) {}
 }
