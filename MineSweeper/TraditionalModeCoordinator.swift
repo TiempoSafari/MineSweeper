@@ -4,7 +4,11 @@ final class TraditionalModeCoordinator: GameModeCoordinating {
     let kind: GameModeKind = .traditional
     let title: String = "传统"
     let iconName: String = "square.grid.2x2"
-    let startMenuView: UIView
+    lazy var startMenuView: UIView = {
+        TraditionalStartView { [weak self] in
+            self?.handleStartRequested()
+        }
+    }()
 
     struct DifficultyOption {
         let title: String
@@ -12,12 +16,6 @@ final class TraditionalModeCoordinator: GameModeCoordinating {
         let cols: Int
         let mines: Int
         let icon: String
-    }
-
-    init() {
-        startMenuView = TraditionalStartView { [weak self] in
-            self?.handleStartRequested()
-        }
     }
 
     weak var presentingViewController: UIViewController?
