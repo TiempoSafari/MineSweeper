@@ -529,13 +529,13 @@ extension GameViewController {
         let button = UIButton(type: .system)
         button.translatesAutoresizingMaskIntoConstraints = false
 
-        var config = UIButton.Configuration.plain()
+        var config = UIButton.Configuration.tinted()
         config.title = "帮助"
         config.image = UIImage(systemName: "questionmark.circle")
         config.imagePlacement = .leading
         config.imagePadding = 6
+        config.cornerStyle = .capsule
         button.configuration = config
-        button.tintColor = .label
 
         button.addTarget(self, action: #selector(handleHelpTapped), for: .touchUpInside)
 
