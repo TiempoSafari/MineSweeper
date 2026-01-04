@@ -310,6 +310,15 @@ final class GameScene: SKScene {
 
     private let highlightOverlayName = "neighborPreviewOverlay"
     private var previewSourceByTouch: [ObjectIdentifier: Cell] = [:]
+    private let hintOverlayName = "hintOverlay"
+
+    struct HintSuggestion {
+        let source: Cell
+        let targets: [Cell]
+        let mineCount: Int
+        let flaggedCount: Int
+        let unknownCount: Int
+    }
 
     /// 获取指定格子的八邻域。
     private func neighbors(of cell: Cell) -> [Cell] {
@@ -374,6 +383,34 @@ final class GameScene: SKScene {
     private func clearNeighborPreview(touchId: ObjectIdentifier) {
         previewSourceByTouch.removeValue(forKey: touchId)
         clearAllNeighborPreviewOverlays()
+    }
+
+    private func clearHintHighlight() {
+        for row in cells {
+            for cell in row {
+                cell.node.childNode(withName: hintOverlayName)?.removeFromParent()
+            }
+        }
+    }
+
+    private func showHintHighlight(for suggestion: HintSuggestion) {
+        clearHintHighlight()
+        let highlightCells = [suggestion.source] + suggestion.targets
+
+        for cell in highlightCells {
+            cell.node.childNode(withName: hintOverlayName)?.removeFromParent()
+            let overlay = SKShapeNode(
+                rectOf: CGSize(width: tileSize - 4, height: tileSize - 4),
+                cornerRadius: 10
+            )
+            overlay.name = hintOverlayName
+            overlay.fillColor = .clear
+            overlay.strokeColor = SKColor.systemOrange
+            overlay.lineWidth = 4
+            overlay.glowWidth = 6
+            overlay.zPosition = 4
+            cell.node.addChild(overlay)
+        }
     }
 
     // MARK: - Chord (数字格自动翻开邻居)
@@ -519,6 +556,7 @@ final class GameScene: SKScene {
     private func startNewGame() {
         stopInertiaPan()
         clearAllNeighborPreviewOverlays()
+        clearHintHighlight()
 
         // ✅ 旧 HUD 永久隐藏
         setLegacyHUDVisible(false)
@@ -559,6 +597,7 @@ final class GameScene: SKScene {
     func showStartState() {
         stopInertiaPan()
         clearAllNeighborPreviewOverlays()
+        clearHintHighlight()
 
         // ✅ 旧 HUD 永久隐藏
         setLegacyHUDVisible(false)
@@ -780,6 +819,46 @@ final class GameScene: SKScene {
         updateMineLabel()
     }
 
+    // MARK: - Hint Support
+
+    func requestHintSuggestion() -> HintSuggestion? {
+        guard !isWaitingForStart, !isGameOver else { return nil }
+
+        for row in cells {
+            for cell in row {
+                guard cell.isRevealed, !cell.hasMine, cell.adjacentMines > 0 else { continue }
+                let neighborCells = neighbors(of: cell)
+                let flagged = neighborCells.filter { $0.isFlagged }.count
+                let unknown = neighborCells.filter { !$0.isRevealed && !$0.isFlagged }
+                let remaining = cell.adjacentMines - flagged
+                guard remaining > 0, remaining == unknown.count else { continue }
+
+                let suggestion = HintSuggestion(
+                    source: cell,
+                    targets: unknown,
+                    mineCount: cell.adjacentMines,
+                    flaggedCount: flagged,
+                    unknownCount: unknown.count
+                )
+                showHintHighlight(for: suggestion)
+                return suggestion
+            }
+        }
+
+        return nil
+    }
+
+    func applyHintSuggestion(_ suggestion: HintSuggestion) {
+        for cell in suggestion.targets where !cell.isFlagged {
+            toggleFlag(for: cell)
+        }
+        clearHintHighlight()
+    }
+
+    func cancelHintSuggestion() {
+        clearHintHighlight()
+    }
+
     // MARK: - End Game
 
     /// 结束游戏并通知代理。
@@ -788,6 +867,7 @@ final class GameScene: SKScene {
         isGameOver = true
 
         clearAllNeighborPreviewOverlays()
+        clearHintHighlight()
         revealAllMines()
 
         // 旧 HUD 永久隐藏
