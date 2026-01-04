@@ -678,11 +678,11 @@ extension GameViewController {
 
         currentHintSuggestion = suggestion
         let message = """
-        橙色框内共有 \(suggestion.mineCount) 个地雷，已发现 \(suggestion.flaggedCount) 个地雷，剩余 \(suggestion.unknownCount) 个未知块。
-        因为 \(suggestion.mineCount) = \(suggestion.flaggedCount) + \(suggestion.unknownCount)，所以未知块都是地雷。
+        根据已翻开的数字格推理，当前可确定 \(suggestion.reasonedMineCount) 个必为地雷的格子。
+        点击“应用”会自动为这些格子插旗。
         """
 
-        let alert = UIAlertController(title: "单点分析法", message: message, preferredStyle: .alert)
+        let alert = UIAlertController(title: "推理分析", message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
             self?.gameScene?.cancelHintSuggestion()
             self?.currentHintSuggestion = nil
