@@ -8,6 +8,8 @@ protocol GameSceneDelegate: AnyObject {
     func gameSceneDidRequestStartMenu(_ scene: GameScene)
     /// 游戏正式开始时回调。
     func gameSceneDidStartGame(_ scene: GameScene)
+    /// 首次翻开格子时回调（用于启动计时）。
+    func gameSceneDidStartTimer(_ scene: GameScene)
     /// 游戏结束（胜/负）时回调。
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool)
 
@@ -702,6 +704,7 @@ final class GameScene: SKScene {
         if isFirstMove {
             placeMines(excluding: cell)
             isFirstMove = false
+            uiDelegate?.gameSceneDidStartTimer(self)
         }
 
         cell.isRevealed = true

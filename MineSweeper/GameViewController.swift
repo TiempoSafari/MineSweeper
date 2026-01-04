@@ -21,6 +21,14 @@ final class GameViewController: UIViewController {
     private var hudTitleLabel: UILabel?
     private var hudSubtitleLabel: UILabel?
 
+    // 计时 HUD（与主 HUD 同风格，显示在右侧）
+    private var timerView: UIVisualEffectView?
+    private var timerLabel: UILabel?
+    private var hudStackView: UIStackView?
+    private var gameTimer: Timer?
+    private var gameStartTime: Date?
+    private var elapsedSeconds: Int = 0
+
     /// 当前选择的难度配置。
     private var currentDifficulty: DifficultyOption?
 
@@ -219,11 +227,19 @@ extension GameViewController {
             subtitle.bottomAnchor.constraint(equalTo: hud.contentView.bottomAnchor, constant: -10)
         ])
 
-        view.addSubview(hud)
+        let timer = makeTimerHUD(effect: effect)
+
+        let stack = UIStackView(arrangedSubviews: [hud, timer])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.alignment = .center
+        stack.spacing = 10
+
+        view.addSubview(stack)
         NSLayoutConstraint.activate([
-            hud.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            hud.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
-            hud.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.86)
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.topAnchor.constraint(equalTo: view.safeAreaLayoutGuide.topAnchor, constant: 10),
+            hud.widthAnchor.constraint(lessThanOrEqualTo: view.widthAnchor, multiplier: 0.72)
         ])
 
         hud.alpha = 0
@@ -232,6 +248,8 @@ extension GameViewController {
         hudView = hud
         hudTitleLabel = title
         hudSubtitleLabel = subtitle
+        timerView = timer
+        hudStackView = stack
     }
 
     /// 更新 HUD 文本内容。
@@ -240,22 +258,103 @@ extension GameViewController {
         hudSubtitleLabel?.text = subtitle
     }
 
+    /// 创建计时 HUD（与主 HUD 同材质风格）。
+    private func makeTimerHUD(effect: UIBlurEffect) -> UIVisualEffectView {
+        let hud = UIVisualEffectView(effect: effect)
+        hud.translatesAutoresizingMaskIntoConstraints = false
+        hud.isUserInteractionEnabled = false
+
+        hud.layer.cornerRadius = 18
+        hud.layer.masksToBounds = true
+        hud.layer.borderWidth = 0.8
+        hud.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+
+        let label = UILabel()
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = UIFont.monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        label.textColor = .label
+        label.textAlignment = .center
+        label.text = "00:00"
+
+        hud.contentView.addSubview(label)
+        NSLayoutConstraint.activate([
+            label.topAnchor.constraint(equalTo: hud.contentView.topAnchor, constant: 10),
+            label.leadingAnchor.constraint(equalTo: hud.contentView.leadingAnchor, constant: 12),
+            label.trailingAnchor.constraint(equalTo: hud.contentView.trailingAnchor, constant: -12),
+            label.bottomAnchor.constraint(equalTo: hud.contentView.bottomAnchor, constant: -10)
+        ])
+
+        hud.alpha = 0
+        hud.isHidden = true
+        timerLabel = label
+        return hud
+    }
+
     /// 显示/隐藏 HUD，支持动画过渡。
     private func setHUDVisible(_ visible: Bool, animated: Bool) {
-        guard let hud = hudView else { return }
+        guard let hud = hudView, let timer = timerView, let stack = hudStackView else { return }
 
         if !animated {
             hud.isHidden = !visible
+            timer.isHidden = !visible
+            stack.isHidden = !visible
             hud.alpha = visible ? 1 : 0
+            timer.alpha = visible ? 1 : 0
             return
         }
 
-        if visible { hud.isHidden = false }
+        if visible {
+            hud.isHidden = false
+            timer.isHidden = false
+            stack.isHidden = false
+        }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
             hud.alpha = visible ? 1 : 0
+            timer.alpha = visible ? 1 : 0
         } completion: { _ in
             hud.isHidden = !visible
+            timer.isHidden = !visible
+            stack.isHidden = !visible
         }
+    }
+
+    /// 重置计时显示（未开始计时）。
+    private func resetTimer() {
+        gameTimer?.invalidate()
+        gameTimer = nil
+        gameStartTime = nil
+        elapsedSeconds = 0
+        updateTimerLabel(seconds: 0)
+    }
+
+    /// 启动计时（首次翻开格子时触发）。
+    private func startTimer() {
+        guard gameTimer == nil else { return }
+        gameStartTime = Date()
+        gameTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            self?.tickTimer()
+        }
+    }
+
+    /// 停止计时并返回已用秒数。
+    private func stopTimer() -> Int {
+        gameTimer?.invalidate()
+        gameTimer = nil
+        return elapsedSeconds
+    }
+
+    /// 每秒刷新一次计时显示。
+    private func tickTimer() {
+        guard let start = gameStartTime else { return }
+        elapsedSeconds = max(0, Int(Date().timeIntervalSince(start)))
+        updateTimerLabel(seconds: elapsedSeconds)
+    }
+
+    /// 将秒数格式化为 mm:ss。
+    private func updateTimerLabel(seconds: Int) {
+        let minutes = seconds / 60
+        let secs = seconds % 60
+        timerLabel?.text = String(format: "%02d:%02d", minutes, secs)
     }
 }
 
@@ -305,6 +404,7 @@ extension GameViewController: GameSceneDelegate {
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
         setSystemTabBarVisible(false, animated: true)
         setHUDVisible(false, animated: true)
+        resetTimer()
         presentDifficultyAlert()
     }
 
@@ -312,6 +412,12 @@ extension GameViewController: GameSceneDelegate {
     func gameSceneDidStartGame(_ scene: GameScene) {
         setSystemTabBarVisible(true, animated: true)
         setHUDVisible(true, animated: true)
+        resetTimer()
+    }
+
+    /// 首次翻开格子时启动计时。
+    func gameSceneDidStartTimer(_ scene: GameScene) {
+        startTimer()
     }
 
     /// 旗子数量变化时更新 HUD 文本。
@@ -329,7 +435,11 @@ extension GameViewController: GameSceneDelegate {
     /// 游戏结束（胜/负），弹窗提示并回到开始界面。
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool) {
         let title = didWin ? "扫雷成功" : "扫雷失败"
-        let message = didWin ? "恭喜你清除了所有地雷。" : "你踩到了地雷。"
+        let elapsed = stopTimer()
+        let timeText = String(format: "%02d:%02d", elapsed / 60, elapsed % 60)
+        let message = didWin
+            ? "恭喜你清除了所有地雷。\n用时 \(timeText)。"
+            : "你踩到了地雷。"
 
         let alert = UIAlertController(title: title, message: message, preferredStyle: .alert)
         alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { [weak self] _ in
