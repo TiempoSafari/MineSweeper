@@ -24,6 +24,9 @@ final class GameViewController: UIViewController {
     // 游戏内帮助按钮
     private var helpButton: UIButton?
 
+    // 难度选择弹窗（用于允许取消）
+    private weak var difficultyAlert: UIAlertController?
+
     // 系统级 HUD（iOS 26 自动 Liquid Glass）
     private var hudView: UIVisualEffectView?
     private var hudTitleLabel: UILabel?
@@ -118,6 +121,7 @@ extension GameViewController {
         for opt in difficulties {
             let action = UIAlertAction(title: opt.title, style: .default) { [weak self] _ in
                 guard let self else { return }
+                self.difficultyAlert = nil
                 self.currentDifficulty = opt
 
                 // 先写入 HUD 基础信息（标记数会通过 delegate 实时更新）
@@ -135,6 +139,12 @@ extension GameViewController {
             alert.addAction(action)
         }
 
+        let cancelAction = UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            self?.difficultyAlert = nil
+        }
+        alert.addAction(cancelAction)
+
+        difficultyAlert = alert
         present(alert, animated: true)
     }
 
@@ -265,10 +275,25 @@ extension GameViewController {
         startButton.translatesAutoresizingMaskIntoConstraints = false
         startButton.setTitle("开始游戏", for: .normal)
         startButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        startButton.tintColor = .label
         startButton.addTarget(self, action: #selector(handleStartGameTapped), for: .touchUpInside)
-        startButton.configuration = .borderedProminent()
 
-        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, startButton])
+        let glassButton = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        glassButton.translatesAutoresizingMaskIntoConstraints = false
+        glassButton.layer.cornerRadius = 18
+        glassButton.layer.masksToBounds = true
+        glassButton.layer.borderWidth = 0.8
+        glassButton.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+        glassButton.contentView.addSubview(startButton)
+
+        NSLayoutConstraint.activate([
+            startButton.topAnchor.constraint(equalTo: glassButton.contentView.topAnchor, constant: 10),
+            startButton.bottomAnchor.constraint(equalTo: glassButton.contentView.bottomAnchor, constant: -10),
+            startButton.leadingAnchor.constraint(equalTo: glassButton.contentView.leadingAnchor, constant: 18),
+            startButton.trailingAnchor.constraint(equalTo: glassButton.contentView.trailingAnchor, constant: -18)
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, glassButton])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 12
@@ -656,9 +681,11 @@ extension GameViewController: UITabBarDelegate {
             selectStartTab(index: 0)
             break
         case 1:
+            dismissDifficultyAlertIfNeeded()
             selectStartTab(index: 1)
             break
         case 2:
+            dismissDifficultyAlertIfNeeded()
             selectStartTab(index: 2)
             break
         default:
@@ -683,5 +710,13 @@ private extension UIAlertAction {
     /// 通过 KVC 为 UIAlertAction 注入系统图标（非公开 API）。
     func setSystemIcon(_ image: UIImage?) {
         self.setValue(image, forKey: "image")
+    }
+}
+
+private extension GameViewController {
+    func dismissDifficultyAlertIfNeeded() {
+        guard let alert = difficultyAlert else { return }
+        alert.dismiss(animated: true)
+        difficultyAlert = nil
     }
 }
