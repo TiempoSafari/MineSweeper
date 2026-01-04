@@ -2,9 +2,12 @@ import UIKit
 import SpriteKit
 import GameplayKit
 
+/// 游戏主界面控制器，负责加载 SpriteKit 场景并管理 UIKit HUD/TabBar。
 final class GameViewController: UIViewController {
 
+    /// 当前呈现的游戏场景（由 SKView 持有，这里弱引用避免循环）。
     private weak var gameScene: GameScene?
+    /// 手势：用于拖拽棋盘（带惯性）。
     private var panGesture: UIPanGestureRecognizer?
 
     // 系统级底部导航（iOS 26 自动 Liquid Glass）
@@ -15,8 +18,10 @@ final class GameViewController: UIViewController {
     private var hudTitleLabel: UILabel?
     private var hudSubtitleLabel: UILabel?
 
+    /// 当前选择的难度配置。
     private var currentDifficulty: DifficultyOption?
 
+    /// 预设难度列表（用于弹窗）。
     private let difficulties: [DifficultyOption] = [
         DifficultyOption(title: "入门", rows: 9,  cols: 9,  mines: 10, icon: "sparkles"),
         DifficultyOption(title: "简单", rows: 12, cols: 9,  mines: 18, icon: "leaf"),
@@ -26,6 +31,7 @@ final class GameViewController: UIViewController {
         DifficultyOption(title: "大师", rows: 30, cols: 30, mines: 160, icon: "crown")
     ]
 
+    /// 加载场景并初始化 UIKit 组件。
     override func viewDidLoad() {
         super.viewDidLoad()
 
@@ -65,11 +71,13 @@ final class GameViewController: UIViewController {
         }
     }
 
+    /// 支持的屏幕方向（手机禁用倒置）。
     override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
         if UIDevice.current.userInterfaceIdiom == .phone { return .allButUpsideDown }
         return .all
     }
 
+    /// 隐藏状态栏以获得沉浸式体验。
     override var prefersStatusBarHidden: Bool { true }
 }
 
@@ -77,6 +85,7 @@ final class GameViewController: UIViewController {
 
 extension GameViewController {
 
+    /// 弹出难度选择弹窗，并在选择后开始游戏。
     private func presentDifficultyAlert() {
         if presentedViewController != nil { return }
 
@@ -114,6 +123,7 @@ extension GameViewController {
 
 extension GameViewController {
 
+    /// 创建并布局系统 TabBar（当前为功能占位）。
     private func configureSystemTabBar() {
         let tabBar = UITabBar()
         tabBar.translatesAutoresizingMaskIntoConstraints = false
@@ -140,6 +150,7 @@ extension GameViewController {
         systemTabBar = tabBar
     }
 
+    /// 显示/隐藏 TabBar，支持动画过渡。
     private func setSystemTabBarVisible(_ visible: Bool, animated: Bool) {
         guard let tabBar = systemTabBar else { return }
         tabBar.isUserInteractionEnabled = visible
@@ -163,6 +174,7 @@ extension GameViewController {
 
 extension GameViewController {
 
+    /// 创建并布局顶部 HUD（标题 + 副标题）。
     private func configureSystemHUD() {
         let effect = UIBlurEffect(style: .systemUltraThinMaterial)
         let hud = UIVisualEffectView(effect: effect)
@@ -217,11 +229,13 @@ extension GameViewController {
         hudSubtitleLabel = subtitle
     }
 
+    /// 更新 HUD 文本内容。
     private func updateHUD(title: String, subtitle: String) {
         hudTitleLabel?.text = title
         hudSubtitleLabel?.text = subtitle
     }
 
+    /// 显示/隐藏 HUD，支持动画过渡。
     private func setHUDVisible(_ visible: Bool, animated: Bool) {
         guard let hud = hudView else { return }
 
@@ -244,6 +258,7 @@ extension GameViewController {
 
 extension GameViewController {
 
+    /// 添加拖拽手势，用于移动棋盘。
     private func configurePanGesture() {
         let gesture = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
         gesture.maximumNumberOfTouches = 1
@@ -251,6 +266,7 @@ extension GameViewController {
         panGesture = gesture
     }
 
+    /// 处理拖拽手势：拖动中移动棋盘，结束时启用惯性滚动。
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         if presentedViewController != nil { return }
         if systemTabBar?.isHidden != false { return }
@@ -280,17 +296,20 @@ extension GameViewController {
 
 extension GameViewController: GameSceneDelegate {
 
+    /// 游戏场景请求显示开始菜单（选择难度）。
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
         setSystemTabBarVisible(false, animated: true)
         setHUDVisible(false, animated: true)
         presentDifficultyAlert()
     }
 
+    /// 游戏正式开始：显示 HUD/TabBar。
     func gameSceneDidStartGame(_ scene: GameScene) {
         setSystemTabBarVisible(true, animated: true)
         setHUDVisible(true, animated: true)
     }
 
+    /// 旗子数量变化时更新 HUD 文本。
     func gameScene(_ scene: GameScene, didUpdateFlagCount flagged: Int, mineCount: Int) {
         if let opt = currentDifficulty {
             updateHUD(
@@ -302,6 +321,7 @@ extension GameViewController: GameSceneDelegate {
         }
     }
 
+    /// 游戏结束（胜/负），弹窗提示并回到开始界面。
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool) {
         let title = didWin ? "扫雷成功" : "扫雷失败"
         let message = didWin ? "恭喜你清除了所有地雷。" : "你踩到了地雷。"
@@ -322,6 +342,7 @@ extension GameViewController: GameSceneDelegate {
 // MARK: - UITabBarDelegate (placeholders)
 
 extension GameViewController: UITabBarDelegate {
+    /// 处理底部 TabBar 点击（目前仅占位）。
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
         switch item.tag {
         case 0:
@@ -352,6 +373,7 @@ private struct DifficultyOption {
 // MARK: - UIAlertAction icon helper (KVC)
 
 private extension UIAlertAction {
+    /// 通过 KVC 为 UIAlertAction 注入系统图标（非公开 API）。
     func setSystemIcon(_ image: UIImage?) {
         self.setValue(image, forKey: "image")
     }
