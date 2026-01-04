@@ -232,7 +232,7 @@ final class ChallengeStartView: UIView {
         difficultyBadge.text = "  \(level.difficultyHint)  "
 
         let progress = Float(index + 1) / Float(levels.count)
-        progressLabel.text = "关卡进度 \(index + 1)/\(levels.count)"
+        progressLabel.text = "当前关卡 \(index + 1)/\(levels.count)"
         progressView.setProgress(progress, animated: true)
 
         goalsStack.arrangedSubviews.forEach { subview in

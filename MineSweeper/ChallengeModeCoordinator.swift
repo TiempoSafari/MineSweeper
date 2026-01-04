@@ -85,17 +85,17 @@ final class ChallengeModeCoordinator: GameModeCoordinating {
         let coefficient = index / levelsPerCoefficient + 1
         let tierOffset = index % levelsPerCoefficient
         let title = "挑战 \(index + 1)"
-        let baseRows = 8 + coefficient * 2
-        let baseCols = 8 + coefficient * 2
-        let rows = min(22, baseRows + tierOffset)
-        let cols = min(18, baseCols + (tierOffset / 2))
-        let density = min(0.22 + Double(coefficient) * 0.03, 0.36)
+        let baseRows = 8 + coefficient
+        let baseCols = 8 + coefficient
+        let rows = min(16, baseRows + tierOffset)
+        let cols = min(14, baseCols + (tierOffset / 2))
+        let density = min(0.16 + Double(coefficient) * 0.02, 0.28)
         let mines = max(8, min(Int(Double(rows * cols) * density), rows * cols - 1))
 
         let goals = [
-            "在 \(10 + coefficient * 2) 回合内完成",
+            "在 \(12 + coefficient * 2) 回合内完成",
             "无误标记",
-            "在 \(70 + coefficient * 20) 秒内完成"
+            "在 \(90 + coefficient * 15) 秒内完成"
         ]
         let reward = "解锁系数 \(coefficient) 奖励"
         let difficultyHint = "阶段 \(coefficient)"
