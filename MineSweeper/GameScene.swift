@@ -57,8 +57,10 @@ final class GameScene: SKScene {
         var isRevealed = false
         var isFlagged = false
         var adjacentMines = 0
+        var isLocked = false
         let node: SKShapeNode
         let label: SKLabelNode
+        var lockOverlay: SKNode?
 
         /// 创建并绑定格子节点与标签。
         init(row: Int, col: Int, node: SKShapeNode, label: SKLabelNode) {
@@ -108,6 +110,9 @@ final class GameScene: SKScene {
     private var rows = 8
     private var cols = 8
     private var mineCount = 10
+    private var challengeLockedCount = 0
+    private var isChallengeMode = false
+    private var pendingUnlock = false
 
     private var isWaitingForStart = true
     private var isFirstMove = true
@@ -582,6 +587,10 @@ final class GameScene: SKScene {
         revealedCount = 0
 
         setupBoard()
+        if isChallengeMode {
+            applyChallengeLocks()
+        }
+        pendingUnlock = false
         updateMineLabel() // 这会触发 flag count 回调给 VC
 
         uiDelegate?.gameSceneDidStartGame(self)
@@ -589,6 +598,7 @@ final class GameScene: SKScene {
 
     /// 以预设难度开始游戏。
     func startGame(difficulty: Difficulty) {
+        isChallengeMode = false
         let configuration = difficulty.configuration
         rows = configuration.rows
         cols = configuration.cols
@@ -598,9 +608,19 @@ final class GameScene: SKScene {
 
     /// 以自定义行列与雷数开始游戏。
     func startGame(rows: Int, cols: Int, mines: Int) {
+        isChallengeMode = false
         self.rows = max(4, rows)
         self.cols = max(4, cols)
         mineCount = max(1, mines)
+        startNewGame()
+    }
+
+    func startChallengeGame(rows: Int, cols: Int, mines: Int, coefficient: Int) {
+        isChallengeMode = true
+        self.rows = max(4, rows)
+        self.cols = max(4, cols)
+        mineCount = max(1, mines)
+        challengeLockedCount = min(6 + coefficient, max(1, (rows * cols) / 5))
         startNewGame()
     }
 
@@ -621,6 +641,7 @@ final class GameScene: SKScene {
         isGameOver = false
         isFirstMove = true
         revealedCount = 0
+        pendingUnlock = false
     }
 
     // MARK: - Board Setup
@@ -663,6 +684,19 @@ final class GameScene: SKScene {
                 rowCells.append(cell)
             }
             cells.append(rowCells)
+        }
+    }
+
+    private func applyChallengeLocks() {
+        guard challengeLockedCount > 0 else { return }
+        let allCells = cells.flatMap { $0 }
+        let maxLocks = min(challengeLockedCount, max(1, allCells.count / 5))
+        let randomSource = GKARC4RandomSource()
+        randomSource.dropValues(16)
+        let shuffled = randomSource.arrayByShufflingObjects(in: allCells) as? [Cell] ?? allCells
+        for cell in shuffled.prefix(maxLocks) {
+            cell.isLocked = true
+            applyLockedStyle(to: cell)
         }
     }
 
@@ -799,7 +833,7 @@ final class GameScene: SKScene {
                     let c = current.col + dc
                     if r >= 0 && r < rows && c >= 0 && c < cols {
                         let neighbor = cells[r][c]
-                        if neighbor.isRevealed || neighbor.isFlagged { continue }
+                        if neighbor.isRevealed || neighbor.isFlagged || neighbor.isLocked { continue }
 
                         neighbor.isRevealed = true
                         applyRevealedStyle(to: neighbor)
@@ -823,10 +857,83 @@ final class GameScene: SKScene {
     /// 切换旗子标记，并更新计数。
     private func toggleFlag(for cell: Cell) {
         guard !cell.isRevealed else { return }
+        if cell.isLocked {
+            if pendingUnlock {
+                unlock(cell: cell)
+                pendingUnlock = false
+            }
+            return
+        }
         cell.isFlagged.toggle()
         cell.label.text = cell.isFlagged ? "🚩" : ""
         cell.label.fontColor = SKColor.systemRed
         updateMineLabel()
+    }
+
+    private func unlock(cell: Cell) {
+        cell.isLocked = false
+        cell.lockOverlay?.removeFromParent()
+        cell.lockOverlay = nil
+        let pulse = SKAction.sequence([
+            SKAction.scale(to: 1.08, duration: 0.08),
+            SKAction.scale(to: 1.0, duration: 0.08)
+        ])
+        cell.node.run(pulse)
+    }
+
+    func applyChallengeTool(_ tool: ChallengeTool) -> Bool {
+        guard !isWaitingForStart, !isGameOver else { return false }
+        switch tool {
+        case .unlock:
+            let lockedCells = cells.flatMap { $0 }.filter { $0.isLocked }
+            guard !lockedCells.isEmpty else { return false }
+            pendingUnlock = true
+            showLockedHint(for: lockedCells)
+            return true
+        case .scan:
+            guard !isFirstMove else { return false }
+            return highlightSafeCell()
+        case .autoFlag:
+            guard !isFirstMove else { return false }
+            return autoFlagMine()
+        }
+    }
+
+    private func showLockedHint(for lockedCells: [Cell]) {
+        let pulse = SKAction.sequence([
+            SKAction.fadeAlpha(to: 1.0, duration: 0.12),
+            SKAction.fadeAlpha(to: 0.4, duration: 0.28)
+        ])
+        for cell in lockedCells {
+            cell.lockOverlay?.run(pulse)
+        }
+    }
+
+    private func highlightSafeCell() -> Bool {
+        let candidates = cells.flatMap { $0 }.filter { !$0.isRevealed && !$0.isFlagged && !$0.hasMine && !$0.isLocked }
+        guard let target = candidates.randomElement() else { return false }
+        let highlight = SKShapeNode(rectOf: CGSize(width: tileSize - 6, height: tileSize - 6), cornerRadius: 8)
+        highlight.fillColor = SKColor.systemGreen.withAlphaComponent(0.18)
+        highlight.strokeColor = SKColor.systemGreen.withAlphaComponent(0.6)
+        highlight.lineWidth = 2
+        highlight.zPosition = 3.5
+        highlight.alpha = 0
+        target.node.addChild(highlight)
+        let action = SKAction.sequence([
+            SKAction.fadeIn(withDuration: 0.2),
+            SKAction.wait(forDuration: 1.2),
+            SKAction.fadeOut(withDuration: 0.2),
+            SKAction.removeFromParent()
+        ])
+        highlight.run(action)
+        return true
+    }
+
+    private func autoFlagMine() -> Bool {
+        let candidates = cells.flatMap { $0 }.filter { $0.hasMine && !$0.isFlagged && !$0.isRevealed && !$0.isLocked }
+        guard let target = candidates.randomElement() else { return false }
+        toggleFlag(for: target)
+        return true
     }
 
     // MARK: - Hint Support

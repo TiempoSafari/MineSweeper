@@ -19,6 +19,8 @@ final class GameViewController: UIViewController {
     // 游戏内帮助按钮（系统 Toolbar）
     private var helpToolbar: UIToolbar?
     private var currentHintSuggestion: GameScene.HintSuggestion?
+    private var itemToolbar: UIVisualEffectView?
+    private var itemButtons: [ChallengeModeCoordinator.ItemType: UIButton] = [:]
 
     private let traditionalCoordinator = TraditionalModeCoordinator()
     private let challengeCoordinator = ChallengeModeCoordinator()
@@ -93,10 +95,12 @@ final class GameViewController: UIViewController {
             configureStartMenu()
             configureSystemHUD()
             configureHelpToolbar()
+            configureItemToolbar()
 
             setStartMenuVisible(true, animated: false)
             setHUDVisible(false, animated: false)
             setHelpToolbarVisible(false, animated: false)
+            setItemToolbarVisible(false, animated: false)
 
         }
     }
@@ -383,6 +387,143 @@ extension GameViewController {
         }
     }
 
+    private func configureItemToolbar() {
+        let effect = UIBlurEffect(style: .systemUltraThinMaterial)
+        let toolbar = UIVisualEffectView(effect: effect)
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.layer.cornerRadius = 16
+        toolbar.layer.masksToBounds = true
+        toolbar.layer.borderWidth = 0.8
+        toolbar.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .horizontal
+        stack.spacing = 10
+        stack.alignment = .center
+
+        ChallengeModeCoordinator.ItemType.allCases.forEach { item in
+            let button = UIButton(type: .system)
+            button.tintColor = .label
+            button.titleLabel?.font = UIFont.systemFont(ofSize: 13, weight: .semibold)
+            button.setImage(UIImage(systemName: item.iconName), for: .normal)
+            button.semanticContentAttribute = .forceLeftToRight
+            button.contentHorizontalAlignment = .center
+            button.addTarget(self, action: #selector(handleItemTapped(_:)), for: .touchUpInside)
+            button.tag = itemButtonTag(item)
+            itemButtons[item] = button
+            stack.addArrangedSubview(button)
+        }
+
+        toolbar.contentView.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: toolbar.contentView.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(equalTo: toolbar.contentView.trailingAnchor, constant: -12),
+            stack.topAnchor.constraint(equalTo: toolbar.contentView.topAnchor, constant: 10),
+            stack.bottomAnchor.constraint(equalTo: toolbar.contentView.bottomAnchor, constant: -10)
+        ])
+
+        view.addSubview(toolbar)
+        NSLayoutConstraint.activate([
+            toolbar.leadingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.leadingAnchor, constant: 16),
+            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+        ])
+
+        toolbar.alpha = 0
+        toolbar.isHidden = true
+        itemToolbar = toolbar
+    }
+
+    private func setItemToolbarVisible(_ visible: Bool, animated: Bool) {
+        guard let toolbar = itemToolbar else { return }
+
+        if !animated {
+            toolbar.isHidden = !visible
+            toolbar.alpha = visible ? 1 : 0
+            return
+        }
+
+        if visible { toolbar.isHidden = false }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            toolbar.alpha = visible ? 1 : 0
+        } completion: { _ in
+            toolbar.isHidden = !visible
+        }
+    }
+
+    private func updateItemToolbar(items: [ChallengeModeCoordinator.ItemType: Int]) {
+        itemButtons.forEach { item, button in
+            let count = items[item, default: 0]
+            let title = " \(count)"
+            button.setTitle(title, for: .normal)
+            button.isEnabled = count > 0
+            button.alpha = count > 0 ? 1.0 : 0.4
+        }
+    }
+
+    private func itemButtonTag(_ item: ChallengeModeCoordinator.ItemType) -> Int {
+        switch item {
+        case .unlocker: return 100
+        case .scanner: return 101
+        case .autoFlag: return 102
+        case .timeRewind: return 103
+        }
+    }
+
+    private func itemType(from tag: Int) -> ChallengeModeCoordinator.ItemType? {
+        switch tag {
+        case 100: return .unlocker
+        case 101: return .scanner
+        case 102: return .autoFlag
+        case 103: return .timeRewind
+        default: return nil
+        }
+    }
+
+    @objc private func handleItemTapped(_ sender: UIButton) {
+        guard let item = itemType(from: sender.tag),
+              let coordinator = currentModeCoordinator as? ChallengeModeCoordinator else { return }
+
+        let handled: Bool
+        switch item {
+        case .timeRewind:
+            guard coordinator.consumeItem(.timeRewind) else { return }
+            rewindTimer(by: 15)
+            handled = true
+        case .unlocker:
+            handled = gameScene?.applyChallengeTool(.unlock) ?? false
+        case .scanner:
+            handled = gameScene?.applyChallengeTool(.scan) ?? false
+        case .autoFlag:
+            handled = gameScene?.applyChallengeTool(.autoFlag) ?? false
+        }
+
+        if handled {
+            if item != .timeRewind {
+                _ = coordinator.consumeItem(item)
+            }
+        } else {
+            if item == .timeRewind {
+                coordinator.refundItem(.timeRewind)
+            }
+            showItemUnavailableAlert()
+        }
+    }
+
+    private func showItemUnavailableAlert() {
+        let alert = UIAlertController(title: "提示", message: "当前无法使用该道具。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
+    }
+
+    private func rewindTimer(by seconds: Int) {
+        elapsedSeconds = max(0, elapsedSeconds - seconds)
+        updateTimerLabel(seconds: elapsedSeconds)
+        if let start = gameStartTime {
+            gameStartTime = start.addingTimeInterval(TimeInterval(seconds))
+        }
+    }
+
     @objc private func handleHelpTapped() {
         guard let suggestion = gameScene?.requestHintSuggestion() else {
             let alert = UIAlertController(title: "提示", message: "暂时没有可用的提示。", preferredStyle: .alert)
@@ -462,6 +603,7 @@ extension GameViewController: GameSceneDelegate {
         setStartMenuVisible(true, animated: true)
         setHUDVisible(false, animated: true)
         setHelpToolbarVisible(false, animated: true)
+        setItemToolbarVisible(false, animated: true)
         resetTimer()
         currentHintSuggestion = nil
         currentModeCoordinator?.resetSelection()
@@ -472,6 +614,7 @@ extension GameViewController: GameSceneDelegate {
         setStartMenuVisible(false, animated: true)
         setHUDVisible(true, animated: true)
         setHelpToolbarVisible(true, animated: true)
+        setItemToolbarVisible(currentModeCoordinator?.kind == .challenge, animated: true)
         resetTimer()
         currentHintSuggestion = nil
     }
