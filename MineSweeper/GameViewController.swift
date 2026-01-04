@@ -21,8 +21,8 @@ final class GameViewController: UIViewController {
     private var challengeView: UIView?
     private var endlessView: UIView?
 
-    // 游戏内帮助按钮
-    private var helpButton: UIButton?
+    // 游戏内帮助按钮（系统 Toolbar）
+    private var helpToolbar: UIToolbar?
     private var currentHintSuggestion: GameScene.HintSuggestion?
 
     // 难度选择弹窗（用于允许取消）
@@ -86,11 +86,11 @@ final class GameViewController: UIViewController {
             configurePanGesture()
             configureStartMenu()
             configureSystemHUD()
-            configureHelpButton()
+            configureHelpToolbar()
 
             setStartMenuVisible(true, animated: false)
             setHUDVisible(false, animated: false)
-            setHelpButtonVisible(false, animated: false)
+            setHelpToolbarVisible(false, animated: false)
 
         }
     }
@@ -618,49 +618,51 @@ extension GameViewController {
     }
 }
 
-// MARK: - Help Button
+// MARK: - Help Toolbar
 
 extension GameViewController {
 
-    private func configureHelpButton() {
-        let button = UIButton(type: .system)
-        button.translatesAutoresizingMaskIntoConstraints = false
+    private func configureHelpToolbar() {
+        let toolbar = UIToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.isTranslucent = true
 
-        var config = UIButton.Configuration.tinted()
-        config.title = "帮助"
-        config.image = UIImage(systemName: "questionmark.circle")
-        config.imagePlacement = .leading
-        config.imagePadding = 6
-        config.cornerStyle = .capsule
-        button.configuration = config
+        let helpItem = UIBarButtonItem(
+            title: "帮助",
+            image: UIImage(systemName: "questionmark.circle"),
+            primaryAction: UIAction { [weak self] _ in
+                self?.handleHelpTapped()
+            }
+        )
+        helpItem.style = .plain
 
-        button.addTarget(self, action: #selector(handleHelpTapped), for: .touchUpInside)
+        toolbar.items = [helpItem]
 
-        view.addSubview(button)
+        view.addSubview(toolbar)
         NSLayoutConstraint.activate([
-            button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
-            button.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+            toolbar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
         ])
 
-        button.alpha = 0
-        button.isHidden = true
-        helpButton = button
+        toolbar.alpha = 0
+        toolbar.isHidden = true
+        helpToolbar = toolbar
     }
 
-    private func setHelpButtonVisible(_ visible: Bool, animated: Bool) {
-        guard let button = helpButton else { return }
+    private func setHelpToolbarVisible(_ visible: Bool, animated: Bool) {
+        guard let toolbar = helpToolbar else { return }
 
         if !animated {
-            button.isHidden = !visible
-            button.alpha = visible ? 1 : 0
+            toolbar.isHidden = !visible
+            toolbar.alpha = visible ? 1 : 0
             return
         }
 
-        if visible { button.isHidden = false }
+        if visible { toolbar.isHidden = false }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            button.alpha = visible ? 1 : 0
+            toolbar.alpha = visible ? 1 : 0
         } completion: { _ in
-            button.isHidden = !visible
+            toolbar.isHidden = !visible
         }
     }
 
@@ -738,7 +740,7 @@ extension GameViewController: GameSceneDelegate {
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
         setStartMenuVisible(true, animated: true)
         setHUDVisible(false, animated: true)
-        setHelpButtonVisible(false, animated: true)
+        setHelpToolbarVisible(false, animated: true)
         resetTimer()
         currentHintSuggestion = nil
     }
@@ -747,7 +749,7 @@ extension GameViewController: GameSceneDelegate {
     func gameSceneDidStartGame(_ scene: GameScene) {
         setStartMenuVisible(false, animated: true)
         setHUDVisible(true, animated: true)
-        setHelpButtonVisible(true, animated: true)
+        setHelpToolbarVisible(true, animated: true)
         resetTimer()
         currentHintSuggestion = nil
     }
@@ -784,7 +786,7 @@ extension GameViewController: GameSceneDelegate {
             scene.showStartState()
             self.setStartMenuVisible(true, animated: true)
             self.setHUDVisible(false, animated: true)
-            self.setHelpButtonVisible(false, animated: true)
+            self.setHelpToolbarVisible(false, animated: true)
         }))
 
         present(alert, animated: true)
