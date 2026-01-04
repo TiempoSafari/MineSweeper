@@ -17,10 +17,17 @@ final class ChallengeStartView: UIView {
     private var selectedIndex: Int = 0
     private var unlockedIndex: Int = 0
     private var baseLevelTitle: String = ""
+    private var completedIndices: Set<Int> = []
 
-    init(levels: [ChallengeModeCoordinator.LevelDefinition], unlockedIndex: Int, onStart: @escaping (Int) -> Void) {
+    init(
+        levels: [ChallengeModeCoordinator.LevelDefinition],
+        unlockedIndex: Int,
+        completedIndices: Set<Int>,
+        onStart: @escaping (Int) -> Void
+    ) {
         self.levels = levels
         self.unlockedIndex = unlockedIndex
+        self.completedIndices = completedIndices
         self.onStart = onStart
         self.segmentedControl = UISegmentedControl(items: levels.enumerated().map { "\($0.offset + 1)" })
         super.init(frame: .zero)
@@ -231,9 +238,8 @@ final class ChallengeStartView: UIView {
         levelDetailLabel.text = "地图 \(level.rows)×\(level.cols) · 雷 \(level.mines)"
         difficultyBadge.text = "  \(level.difficultyHint)  "
 
-        let progress = Float(index + 1) / Float(levels.count)
-        progressLabel.text = "当前关卡 \(index + 1)/\(levels.count)"
-        progressView.setProgress(progress, animated: true)
+        progressLabel.text = "当前关卡 第\(index + 1)关"
+        progressView.setProgress(1.0, animated: true)
 
         goalsStack.arrangedSubviews.forEach { subview in
             goalsStack.removeArrangedSubview(subview)
@@ -257,32 +263,39 @@ final class ChallengeStartView: UIView {
     }
 
     @objc private func handleStartTapped() {
-        guard selectedIndex <= unlockedIndex else { return }
+        guard selectedIndex == unlockedIndex else { return }
         onStart(selectedIndex)
     }
 
     func updateLevels(
         levels: [ChallengeModeCoordinator.LevelDefinition],
         unlockedIndex: Int,
+        completedIndices: Set<Int>,
         selectedIndex: Int?
     ) {
         guard levels.count == self.levels.count else { return }
         self.unlockedIndex = unlockedIndex
-        let preferredIndex = selectedIndex ?? min(unlockedIndex, levels.count - 1)
-        segmentedControl.selectedSegmentIndex = preferredIndex
-        updateLevelDisplay(index: preferredIndex)
+        self.completedIndices = completedIndices
+        let activeIndex = min(unlockedIndex, levels.count - 1)
+        segmentedControl.selectedSegmentIndex = activeIndex
+        updateLevelDisplay(index: activeIndex)
     }
 
     private func updateSegmentStates() {
         for index in 0..<segmentedControl.numberOfSegments {
-            segmentedControl.setEnabled(index <= unlockedIndex, forSegmentAt: index)
+            let isCompleted = completedIndices.contains(index)
+            let isActive = index == unlockedIndex && !isCompleted
+            segmentedControl.setEnabled(isActive, forSegmentAt: index)
+            let titlePrefix = isCompleted ? "✓" : ""
+            segmentedControl.setTitle("\(titlePrefix)\(index + 1)", forSegmentAt: index)
         }
 
-        let isUnlocked = selectedIndex <= unlockedIndex
-        let titleSuffix = isUnlocked ? "" : "（未解锁）"
-        levelTitleLabel.text = "\(baseLevelTitle)\(titleSuffix)"
-        rewardLabel.textColor = isUnlocked ? .secondaryLabel : .tertiaryLabel
-        startButton.isEnabled = isUnlocked
-        startButton.alpha = isUnlocked ? 1.0 : 0.5
+        let isCompleted = completedIndices.contains(selectedIndex)
+        let isActive = selectedIndex == unlockedIndex && !isCompleted
+        let titleSuffix = isCompleted ? "（已通关）" : "（未解锁）"
+        levelTitleLabel.text = isActive ? baseLevelTitle : "\(baseLevelTitle)\(titleSuffix)"
+        rewardLabel.textColor = isActive ? .secondaryLabel : .tertiaryLabel
+        startButton.isEnabled = isActive
+        startButton.alpha = isActive ? 1.0 : 0.5
     }
 }
