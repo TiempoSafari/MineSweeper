@@ -2,21 +2,30 @@ import SpriteKit
 import GameplayKit
 import UIKit
 
+/// GameScene 与 UIKit 层通信的协议。
 protocol GameSceneDelegate: AnyObject {
+    /// 请求显示开始菜单（难度选择）。
     func gameSceneDidRequestStartMenu(_ scene: GameScene)
+    /// 游戏正式开始时回调。
     func gameSceneDidStartGame(_ scene: GameScene)
+    /// 游戏结束（胜/负）时回调。
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool)
 
     // ✅ 新增：旗子数量更新（用于 UIKit HUD）
+    /// 旗子数量或雷数变化时回调。
     func gameScene(_ scene: GameScene, didUpdateFlagCount flagged: Int, mineCount: Int)
 }
 
+/// SpriteKit 游戏场景，承载棋盘逻辑与渲染。
+// MARK: - GameScene
 final class GameScene: SKScene {
+    // MARK: Types
     enum Difficulty: CaseIterable {
         case easy
         case medium
         case hard
 
+        /// 难度标题（用于 UI）。
         var title: String {
             switch self {
             case .easy: return "简单"
@@ -25,6 +34,7 @@ final class GameScene: SKScene {
             }
         }
 
+        /// 不同难度对应的行列/雷数配置。
         var configuration: (rows: Int, cols: Int, mines: Int) {
             switch self {
             case .easy:
@@ -37,6 +47,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 单个格子的数据模型。
     final class Cell {
         let row: Int
         let col: Int
@@ -47,6 +58,7 @@ final class GameScene: SKScene {
         let node: SKShapeNode
         let label: SKLabelNode
 
+        /// 创建并绑定格子节点与标签。
         init(row: Int, col: Int, node: SKShapeNode, label: SKLabelNode) {
             self.row = row
             self.col = col
@@ -55,14 +67,17 @@ final class GameScene: SKScene {
         }
     }
 
+    // MARK: Properties
     var entities = [GKEntity]()
     var graphs = [String: GKGraph]()
 
+    /// UIKit 层代理，用于 HUD/弹窗等交互。
     weak var uiDelegate: GameSceneDelegate?
 
     private var boardNode = SKNode()
     private var cells: [[Cell]] = []
 
+    /// 触摸长按状态缓存。
     private struct LongPressState {
         let startTime: TimeInterval
         let location: CGPoint
@@ -106,8 +121,10 @@ final class GameScene: SKScene {
     private let inertiaMaxSpeed: CGFloat = 1600
     private let inertiaEpsilon: CGFloat = 6
 
+    /// 停止惯性滚动。
     func stopInertiaPan() { inertiaVelocity = .zero }
 
+    /// 根据拖拽速度启动惯性滚动。
     func startInertiaPan(initialVelocity: CGPoint) {
         guard !isWaitingForStart, !isGameOver else { return }
         lastUpdateTime = 0
@@ -137,6 +154,7 @@ final class GameScene: SKScene {
     private let glassOverlayName = "glassOverlay"
     private var glassTextureCache: [String: SKTexture] = [:]
 
+    /// 应用未翻开格子的玻璃样式。
     private func applyUnrevealedStyle(to cell: Cell) {
         // 先清掉旧 overlay
         cell.node.childNode(withName: glassOverlayName)?.removeFromParent()
@@ -165,6 +183,7 @@ final class GameScene: SKScene {
         cell.node.addChild(overlay)
     }
 
+    /// 应用已翻开格子的玻璃样式。
     private func applyRevealedStyle(to cell: Cell) {
         cell.node.childNode(withName: glassOverlayName)?.removeFromParent()
 
@@ -201,6 +220,7 @@ final class GameScene: SKScene {
         cell.node.addChild(overlay)
     }
 
+    /// 生成玻璃质感纹理，并按 key 缓存复用。
     private func glassTileTexture(
         key: String,
         size: CGSize,
@@ -289,6 +309,7 @@ final class GameScene: SKScene {
     private let highlightOverlayName = "neighborPreviewOverlay"
     private var previewSourceByTouch: [ObjectIdentifier: Cell] = [:]
 
+    /// 获取指定格子的八邻域。
     private func neighbors(of cell: Cell) -> [Cell] {
         var result: [Cell] = []
         for dr in -1...1 {
@@ -304,6 +325,7 @@ final class GameScene: SKScene {
         return result
     }
 
+    /// 高亮显示数字格周围的邻居预览。
     private func showNeighborPreview(for source: Cell, touchId: ObjectIdentifier) {
         clearNeighborPreview(touchId: touchId)
         previewSourceByTouch[touchId] = source
@@ -336,6 +358,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 清理所有邻居预览高亮。
     private func clearAllNeighborPreviewOverlays() {
         for row in cells {
             for cell in row {
@@ -345,6 +368,7 @@ final class GameScene: SKScene {
         previewSourceByTouch.removeAll()
     }
 
+    /// 清理指定触摸的邻居预览。
     private func clearNeighborPreview(touchId: ObjectIdentifier) {
         previewSourceByTouch.removeValue(forKey: touchId)
         clearAllNeighborPreviewOverlays()
@@ -352,10 +376,12 @@ final class GameScene: SKScene {
 
     // MARK: - Chord (数字格自动翻开邻居)
 
+    /// 统计某个格子周围已标记的旗子数量。
     private func flaggedNeighborCount(of cell: Cell) -> Int {
         neighbors(of: cell).filter { $0.isFlagged }.count
     }
 
+    /// “Chord” 操作：当旗子数等于数字时自动翻开剩余邻居。
     private func chordReveal(from cell: Cell) {
         guard !isWaitingForStart, !isGameOver else { return }
         guard cell.isRevealed, !cell.hasMine, cell.adjacentMines > 0 else { return }
@@ -378,6 +404,7 @@ final class GameScene: SKScene {
 
     // MARK: - Lifecycle
 
+    /// 场景加载完成时进行基础 UI/背景配置。
     override func didMove(to view: SKView) {
         backgroundColor = SKColor.systemBackground
         configureBackground()
@@ -391,6 +418,7 @@ final class GameScene: SKScene {
         showStartState()
     }
 
+    /// 每帧更新，用于惯性滚动衰减。
     override func update(_ currentTime: TimeInterval) {
         if lastUpdateTime == 0 {
             lastUpdateTime = currentTime
@@ -426,6 +454,7 @@ final class GameScene: SKScene {
 
     // MARK: - Legacy HUD (SpriteKit) — permanently hidden
 
+    /// 控制旧 HUD（SpriteKit 标签）显示与否。
     private func setLegacyHUDVisible(_ visible: Bool) {
         statusLabel.isHidden = !visible
         mineLabel.isHidden = !visible
@@ -433,6 +462,7 @@ final class GameScene: SKScene {
         mineBackground.isHidden = !visible
     }
 
+    /// 配置旧 HUD 的标签节点（当前仍保留但默认隐藏）。
     private func configureLabels() {
         statusLabel.fontSize = 26
         statusLabel.fontColor = SKColor.label
@@ -455,6 +485,7 @@ final class GameScene: SKScene {
         updateLabelBackdrops()
     }
 
+    /// 生成标签的半透明圆角背景。
     private func labelBackdrop(for label: SKLabelNode, horizontalPadding: CGFloat, verticalPadding: CGFloat) -> SKShapeNode {
         let size = CGSize(width: label.frame.width + horizontalPadding, height: label.frame.height + verticalPadding)
         let node = SKShapeNode(rectOf: size, cornerRadius: size.height / 2)
@@ -467,6 +498,7 @@ final class GameScene: SKScene {
         return node
     }
 
+    /// 根据标签尺寸更新其背景节点。
     private func updateLabelBackdrops() {
         statusBackground.removeFromParent()
         mineBackground.removeFromParent()
@@ -481,6 +513,7 @@ final class GameScene: SKScene {
 
     // MARK: - Game Flow
 
+    /// 初始化并开始一局新游戏。
     private func startNewGame() {
         stopInertiaPan()
         clearAllNeighborPreviewOverlays()
@@ -503,6 +536,7 @@ final class GameScene: SKScene {
         uiDelegate?.gameSceneDidStartGame(self)
     }
 
+    /// 以预设难度开始游戏。
     func startGame(difficulty: Difficulty) {
         let configuration = difficulty.configuration
         rows = configuration.rows
@@ -511,6 +545,7 @@ final class GameScene: SKScene {
         startNewGame()
     }
 
+    /// 以自定义行列与雷数开始游戏。
     func startGame(rows: Int, cols: Int, mines: Int) {
         self.rows = max(4, rows)
         self.cols = max(4, cols)
@@ -518,6 +553,7 @@ final class GameScene: SKScene {
         startNewGame()
     }
 
+    /// 切换到等待开始状态（仅显示背景，不显示棋盘）。
     func showStartState() {
         stopInertiaPan()
         clearAllNeighborPreviewOverlays()
@@ -537,6 +573,7 @@ final class GameScene: SKScene {
 
     // MARK: - Board Setup
 
+    /// 构建棋盘网格并创建所有格子节点。
     private func setupBoard() {
         tileSize = tileSizeFixed
         let gridWidth = tileSize * CGFloat(cols)
@@ -577,6 +614,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 计算某个格子的坐标（以棋盘左下角为原点）。
     private func positionFor(row: Int, col: Int) -> CGPoint {
         CGPoint(
             x: CGFloat(col) * tileSize + tileSize / 2,
@@ -586,6 +624,7 @@ final class GameScene: SKScene {
 
     // MARK: - Mines (first move must chain open)
 
+    /// 更新雷/旗子计数，同时通知 UIKit HUD。
     private func updateMineLabel() {
         let flagged = cells.flatMap { $0 }.filter { $0.isFlagged }.count
 
@@ -597,6 +636,7 @@ final class GameScene: SKScene {
         uiDelegate?.gameScene(self, didUpdateFlagCount: flagged, mineCount: mineCount)
     }
 
+    /// 布雷：首格及其周围 8 格不放雷，保证首翻连锁。
     private func placeMines(excluding firstCell: Cell) {
         // ✅ 首翻必须连锁：排除首格 + 周围8格，保证首格 adjacentMines == 0
         func key(_ r: Int, _ c: Int) -> Int { r * cols + c }
@@ -636,6 +676,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 统计指定坐标周围地雷数量。
     private func countAdjacentMines(row: Int, col: Int) -> Int {
         var count = 0
         for dr in -1...1 {
@@ -654,6 +695,7 @@ final class GameScene: SKScene {
     // MARK: - Reveal / Flag
 
     // 翻开格子
+    /// 翻开单个格子，并处理胜负判断。
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
 
@@ -691,6 +733,7 @@ final class GameScene: SKScene {
     }
 
 
+    /// 使用 BFS 连锁翻开空白区域。
     private func revealNeighbors(from cell: Cell) {
         var queue = [cell]
         var index = 0
@@ -725,6 +768,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 切换旗子标记，并更新计数。
     private func toggleFlag(for cell: Cell) {
         guard !cell.isRevealed else { return }
         cell.isFlagged.toggle()
@@ -735,6 +779,7 @@ final class GameScene: SKScene {
 
     // MARK: - End Game
 
+    /// 结束游戏并通知代理。
     private func endGame(didWin: Bool) {
         stopInertiaPan()
         isGameOver = true
@@ -748,6 +793,7 @@ final class GameScene: SKScene {
         uiDelegate?.gameScene(self, didEndWithWin: didWin)
     }
 
+    /// 将所有地雷展示出来。
     private func revealAllMines() {
         for row in cells {
             for cell in row where cell.hasMine {
@@ -758,6 +804,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 根据周围雷数返回数字颜色。
     private func colorForMineCount(_ count: Int) -> SKColor {
         switch count {
         case 1: return SKColor.systemBlue
@@ -770,6 +817,7 @@ final class GameScene: SKScene {
 
     // MARK: - Touch Handling
 
+    /// 根据触摸点定位到棋盘格子。
     private func cell(at point: CGPoint) -> Cell? {
         let localPoint = convert(point, to: boardNode)
         let col = Int(localPoint.x / tileSize)
@@ -779,6 +827,7 @@ final class GameScene: SKScene {
         return cells[row][col]
     }
 
+    /// 触摸开始：用于长按翻开、数字格预览等。
     override func touchesBegan(_ touches: Set<UITouch>, with event: UIEvent?) {
         stopInertiaPan()
 
@@ -812,6 +861,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 触摸结束：短按插旗，或对数字格进行 chord 翻开。
     override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let endPoint = touch.location(in: self)
@@ -838,6 +888,7 @@ final class GameScene: SKScene {
         }
     }
 
+    /// 触摸取消：清理计时器与高亮。
     override func touchesCancelled(_ touches: Set<UITouch>, with event: UIEvent?) {
         for touch in touches {
             let identifier = ObjectIdentifier(touch)
@@ -851,6 +902,7 @@ final class GameScene: SKScene {
 
     // MARK: - Background / Board Pan
 
+    /// 生成并设置玻璃拟态背景。
     private func configureBackground() {
         backgroundNode.removeFromParent()
 
@@ -861,6 +913,7 @@ final class GameScene: SKScene {
         addChild(backgroundNode)
     }
 
+    /// 渲染玻璃拟态背景纹理。
     private func glassmorphismBackgroundTexture(size: CGSize) -> SKTexture {
         let renderer = UIGraphicsImageRenderer(size: size)
         let baseImage = renderer.image { ctx in
@@ -930,6 +983,7 @@ final class GameScene: SKScene {
         return SKTexture(image: blurred)
     }
 
+    /// 对背景做高斯模糊，增强柔和质感。
     private func gaussianBlur(image: UIImage, radius: CGFloat) -> UIImage? {
         guard let ciImage = CIImage(image: image) else { return nil }
         let filter = CIFilter(name: "CIGaussianBlur")
@@ -947,6 +1001,7 @@ final class GameScene: SKScene {
         return UIImage(cgImage: cg)
     }
 
+    /// 约束棋盘位置，避免拖拽出屏幕过多。
     private func clampedBoardOrigin(proposed: CGPoint) -> CGPoint {
         let margin: CGFloat = 24
         let viewWidth = size.width
@@ -971,6 +1026,7 @@ final class GameScene: SKScene {
         )
     }
 
+    /// 根据拖拽位移移动棋盘（UIKit 坐标系需要反转 Y）。
     func panBoard(by translation: CGPoint) {
         guard !isWaitingForStart else { return }
         let proposed = CGPoint(x: boardNode.position.x + translation.x,
