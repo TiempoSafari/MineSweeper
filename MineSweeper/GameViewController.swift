@@ -21,12 +21,7 @@ final class GameViewController: UIViewController {
     private var currentHintSuggestion: GameScene.HintSuggestion?
 
     private let traditionalCoordinator = TraditionalModeCoordinator()
-    private let challengeCoordinator = PlaceholderModeCoordinator(
-        kind: .challenge,
-        title: "闯关",
-        iconName: "flag.checkered",
-        message: "敬请期待"
-    )
+    private let challengeCoordinator = ChallengeModeCoordinator()
     private let endlessCoordinator = PlaceholderModeCoordinator(
         kind: .endless,
         title: "无尽",
@@ -82,6 +77,10 @@ final class GameViewController: UIViewController {
             traditionalCoordinator.presentingViewController = self
             traditionalCoordinator.gameScene = sceneNode
             traditionalCoordinator.onHUDUpdate = { [weak self] title, subtitle in
+                self?.updateHUD(title: title, subtitle: subtitle)
+            }
+            challengeCoordinator.gameScene = sceneNode
+            challengeCoordinator.onHUDUpdate = { [weak self] title, subtitle in
                 self?.updateHUD(title: title, subtitle: subtitle)
             }
             modeCoordinators = [
@@ -465,7 +464,7 @@ extension GameViewController: GameSceneDelegate {
         setHelpToolbarVisible(false, animated: true)
         resetTimer()
         currentHintSuggestion = nil
-        traditionalCoordinator.resetSelection()
+        currentModeCoordinator?.resetSelection()
     }
 
     /// 游戏正式开始：显示 HUD/TabBar。
@@ -484,11 +483,12 @@ extension GameViewController: GameSceneDelegate {
 
     /// 旗子数量变化时更新 HUD 文本。
     func gameScene(_ scene: GameScene, didUpdateFlagCount flagged: Int, mineCount: Int) {
-        traditionalCoordinator.updateHUDForFlags(flagged: flagged, mineCount: mineCount)
+        currentModeCoordinator?.updateHUDForFlags(flagged: flagged, mineCount: mineCount)
     }
 
     /// 游戏结束（胜/负），弹窗提示并回到开始界面。
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool) {
+        currentModeCoordinator?.handleGameEnd(didWin: didWin)
         let title = didWin ? "扫雷成功" : "扫雷失败"
         let elapsed = stopTimer()
         let timeText = String(format: "%02d:%02d", elapsed / 60, elapsed % 60)
@@ -518,5 +518,12 @@ extension GameViewController: StartMenuViewDelegate {
         }
         currentModeIndex = index
         modeCoordinators[index].didSelect()
+    }
+}
+
+private extension GameViewController {
+    var currentModeCoordinator: GameModeCoordinating? {
+        guard let currentModeIndex else { return nil }
+        return modeCoordinators[currentModeIndex]
     }
 }
