@@ -13,8 +13,20 @@ final class GameViewController: UIViewController {
     /// 手势：用于拖拽棋盘（带惯性）。
     private var panGesture: UIPanGestureRecognizer?
 
-    // 系统级底部导航（iOS 26 自动 Liquid Glass）
-    private var systemTabBar: UITabBar?
+    // 开始界面底部导航
+    private var startMenuView: UIView?
+    private var startTabBar: UITabBar?
+    private var startContentView: UIView?
+    private var traditionalView: UIView?
+    private var challengeView: UIView?
+    private var endlessView: UIView?
+
+    // 游戏内帮助按钮（系统 Toolbar）
+    private var helpToolbar: UIToolbar?
+    private var currentHintSuggestion: GameScene.HintSuggestion?
+
+    // 难度选择弹窗（用于允许取消）
+    private weak var difficultyAlert: UIAlertController?
 
     // 系统级 HUD（iOS 26 自动 Liquid Glass）
     private var hudView: UIVisualEffectView?
@@ -72,15 +84,14 @@ final class GameViewController: UIViewController {
             sceneNode.uiDelegate = self
 
             configurePanGesture()
-            configureSystemTabBar()
+            configureStartMenu()
             configureSystemHUD()
+            configureHelpToolbar()
 
-            setSystemTabBarVisible(false, animated: false)
+            setStartMenuVisible(true, animated: false)
             setHUDVisible(false, animated: false)
+            setHelpToolbarVisible(false, animated: false)
 
-            DispatchQueue.main.async { [weak self] in
-                self?.presentDifficultyAlert()
-            }
         }
     }
 
@@ -111,6 +122,7 @@ extension GameViewController {
         for opt in difficulties {
             let action = UIAlertAction(title: opt.title, style: .default) { [weak self] _ in
                 guard let self else { return }
+                self.difficultyAlert = nil
                 self.currentDifficulty = opt
 
                 // 先写入 HUD 基础信息（标记数会通过 delegate 实时更新）
@@ -128,58 +140,306 @@ extension GameViewController {
             alert.addAction(action)
         }
 
+        let cancelAction = UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            self?.difficultyAlert = nil
+        }
+        alert.addAction(cancelAction)
+
+        difficultyAlert = alert
         present(alert, animated: true)
+    }
+
+    @objc private func handleStartGameTapped() {
+        presentDifficultyAlert()
     }
 }
 
-// MARK: - System UITabBar (in-game only)
+// MARK: - Start Menu TabBar
 
 extension GameViewController {
 
-    /// 创建并布局系统 TabBar（当前为功能占位）。
-    private func configureSystemTabBar() {
+    /// 创建并布局开始界面（包含 TabBar + 内容区）。
+    private func configureStartMenu() {
+        let menuView = UIView()
+        menuView.translatesAutoresizingMaskIntoConstraints = false
+        menuView.backgroundColor = .clear
+
+        let contentView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+
         let tabBar = UITabBar()
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         tabBar.delegate = self
 
-        let item1 = UITabBarItem(title: "功能1", image: UIImage(systemName: "circle.grid.2x2"), tag: 0)
-        let item2 = UITabBarItem(title: "功能2", image: UIImage(systemName: "wand.and.stars"), tag: 1)
-        let item3 = UITabBarItem(title: "功能3", image: UIImage(systemName: "gearshape"), tag: 2)
+        let item1 = UITabBarItem(title: "传统", image: UIImage(systemName: "square.grid.2x2"), tag: 0)
+        let item2 = UITabBarItem(title: "闯关", image: UIImage(systemName: "flag.checkered"), tag: 1)
+        let item3 = UITabBarItem(title: "无尽", image: UIImage(systemName: "infinity"), tag: 2)
         tabBar.items = [item1, item2, item3]
-        tabBar.selectedItem = item2
+        tabBar.selectedItem = item1
 
         let appearance = UITabBarAppearance()
         appearance.configureWithDefaultBackground()
         tabBar.standardAppearance = appearance
         tabBar.scrollEdgeAppearance = appearance
 
-        view.addSubview(tabBar)
+        menuView.addSubview(contentView)
+        menuView.addSubview(tabBar)
+        view.addSubview(menuView)
+
         NSLayoutConstraint.activate([
-            tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tabBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+            menuView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            menuView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            menuView.topAnchor.constraint(equalTo: view.topAnchor),
+            menuView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            tabBar.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            tabBar.bottomAnchor.constraint(equalTo: menuView.safeAreaLayoutGuide.bottomAnchor),
+
+            contentView.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: menuView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: tabBar.topAnchor)
         ])
 
-        systemTabBar = tabBar
+        startMenuView = menuView
+        startTabBar = tabBar
+        startContentView = contentView
+
+        traditionalView = buildTraditionalView()
+        challengeView = buildPlaceholderView(title: "闯关模式", message: "敬请期待")
+        endlessView = buildPlaceholderView(title: "无尽模式", message: "敬请期待")
+
+        if let traditionalView, let challengeView, let endlessView {
+            contentView.addSubview(traditionalView)
+            contentView.addSubview(challengeView)
+            contentView.addSubview(endlessView)
+
+            [traditionalView, challengeView, endlessView].forEach { subview in
+                subview.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    subview.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                    subview.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                    subview.topAnchor.constraint(equalTo: contentView.topAnchor),
+                    subview.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+                ])
+            }
+        }
+
+        selectStartTab(index: 0)
     }
 
-    /// 显示/隐藏 TabBar，支持动画过渡。
-    private func setSystemTabBarVisible(_ visible: Bool, animated: Bool) {
-        guard let tabBar = systemTabBar else { return }
-        tabBar.isUserInteractionEnabled = visible
+    /// 显示/隐藏开始界面，支持动画过渡。
+    private func setStartMenuVisible(_ visible: Bool, animated: Bool) {
+        guard let menuView = startMenuView else { return }
+        menuView.isUserInteractionEnabled = visible
 
         if !animated {
-            tabBar.isHidden = !visible
-            tabBar.alpha = visible ? 1 : 0
+            menuView.isHidden = !visible
+            menuView.alpha = visible ? 1 : 0
             return
         }
 
-        if visible { tabBar.isHidden = false }
+        if visible { menuView.isHidden = false }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            tabBar.alpha = visible ? 1 : 0
+            menuView.alpha = visible ? 1 : 0
         } completion: { _ in
-            tabBar.isHidden = !visible
+            menuView.isHidden = !visible
         }
+    }
+
+    private func selectStartTab(index: Int) {
+        traditionalView?.isHidden = index != 0
+        challengeView?.isHidden = index != 1
+        endlessView?.isHidden = index != 2
+    }
+
+    private func buildTraditionalView() -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+
+        let cardView = buildMinesweeperCardView()
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "传统模式"
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.text = "选择难度开始游戏"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textAlignment = .center
+
+        let startButton = UIButton(type: .system)
+        startButton.translatesAutoresizingMaskIntoConstraints = false
+        startButton.setTitle("开始游戏", for: .normal)
+        startButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        startButton.tintColor = .label
+        startButton.addTarget(self, action: #selector(handleStartGameTapped), for: .touchUpInside)
+
+        let glassButton = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        glassButton.translatesAutoresizingMaskIntoConstraints = false
+        glassButton.layer.cornerRadius = 18
+        glassButton.layer.masksToBounds = true
+        glassButton.layer.borderWidth = 0.8
+        glassButton.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+        glassButton.contentView.addSubview(startButton)
+
+        NSLayoutConstraint.activate([
+            startButton.topAnchor.constraint(equalTo: glassButton.contentView.topAnchor, constant: 10),
+            startButton.bottomAnchor.constraint(equalTo: glassButton.contentView.bottomAnchor, constant: -10),
+            startButton.leadingAnchor.constraint(equalTo: glassButton.contentView.leadingAnchor, constant: 18),
+            startButton.trailingAnchor.constraint(equalTo: glassButton.contentView.trailingAnchor, constant: -18)
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [cardView, titleLabel, subtitleLabel, glassButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 14
+        stack.alignment = .center
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24)
+        ])
+
+        return container
+    }
+
+    private func buildPlaceholderView(title: String, message: String) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = title
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+
+        let messageLabel = UILabel()
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.text = message
+        messageLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        messageLabel.textColor = .secondaryLabel
+        messageLabel.textAlignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.alignment = .center
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24)
+        ])
+
+        return container
+    }
+
+    private func buildMinesweeperCardView() -> UIView {
+        let cardSize: CGFloat = 170
+        let card = UIView()
+        card.translatesAutoresizingMaskIntoConstraints = false
+        card.layer.cornerRadius = 20
+        card.layer.masksToBounds = false
+        card.layer.shadowColor = UIColor.black.withAlphaComponent(0.25).cgColor
+        card.layer.shadowOpacity = 1
+        card.layer.shadowRadius = 16
+        card.layer.shadowOffset = CGSize(width: 0, height: 10)
+
+        let background = UIView()
+        background.translatesAutoresizingMaskIntoConstraints = false
+        background.layer.cornerRadius = 20
+        background.layer.masksToBounds = true
+
+        let gradient = CAGradientLayer()
+        gradient.colors = [
+            UIColor(red: 0.65, green: 0.80, blue: 0.98, alpha: 1).cgColor,
+            UIColor(red: 0.32, green: 0.55, blue: 0.88, alpha: 1).cgColor
+        ]
+        gradient.startPoint = CGPoint(x: 0, y: 0)
+        gradient.endPoint = CGPoint(x: 1, y: 1)
+        gradient.frame = CGRect(origin: .zero, size: CGSize(width: cardSize, height: cardSize))
+        background.layer.insertSublayer(gradient, at: 0)
+
+        let grid = UIStackView()
+        grid.translatesAutoresizingMaskIntoConstraints = false
+        grid.axis = .vertical
+        grid.spacing = 6
+        grid.alignment = .center
+
+        for row in 0..<3 {
+            let rowStack = UIStackView()
+            rowStack.axis = .horizontal
+            rowStack.spacing = 6
+            rowStack.alignment = .center
+            for col in 0..<3 {
+                let tile = UILabel()
+                tile.translatesAutoresizingMaskIntoConstraints = false
+                tile.textAlignment = .center
+                tile.font = UIFont.systemFont(ofSize: 18, weight: .semibold)
+                tile.textColor = .systemGreen
+                tile.backgroundColor = UIColor.white.withAlphaComponent(0.85)
+                tile.layer.cornerRadius = 8
+                tile.layer.masksToBounds = true
+
+                if row == 1 && col == 1 {
+                    tile.text = "2"
+                } else if row == 2 && col == 1 {
+                    tile.text = "🚩"
+                } else {
+                    tile.text = ""
+                }
+
+                NSLayoutConstraint.activate([
+                    tile.widthAnchor.constraint(equalToConstant: 38),
+                    tile.heightAnchor.constraint(equalToConstant: 38)
+                ])
+                rowStack.addArrangedSubview(tile)
+            }
+            grid.addArrangedSubview(rowStack)
+        }
+
+        background.addSubview(grid)
+        card.addSubview(background)
+
+        NSLayoutConstraint.activate([
+            card.widthAnchor.constraint(equalToConstant: cardSize),
+            card.heightAnchor.constraint(equalToConstant: cardSize),
+
+            background.leadingAnchor.constraint(equalTo: card.leadingAnchor),
+            background.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            background.topAnchor.constraint(equalTo: card.topAnchor),
+            background.bottomAnchor.constraint(equalTo: card.bottomAnchor),
+
+            grid.centerXAnchor.constraint(equalTo: background.centerXAnchor),
+            grid.centerYAnchor.constraint(equalTo: background.centerYAnchor)
+        ])
+
+        card.transform = CGAffineTransform(rotationAngle: -0.06)
+
+        let floatAnimation = CABasicAnimation(keyPath: "transform.translation.y")
+        floatAnimation.fromValue = -4
+        floatAnimation.toValue = 4
+        floatAnimation.duration = 2.6
+        floatAnimation.autoreverses = true
+        floatAnimation.repeatCount = .infinity
+        floatAnimation.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        card.layer.add(floatAnimation, forKey: "float")
+
+        return card
     }
 }
 
@@ -358,6 +618,88 @@ extension GameViewController {
     }
 }
 
+// MARK: - Help Toolbar
+
+extension GameViewController {
+
+    private func configureHelpToolbar() {
+        let toolbar = UIToolbar()
+        toolbar.translatesAutoresizingMaskIntoConstraints = false
+        toolbar.isTranslucent = true
+
+        let helpItem = UIBarButtonItem(
+            title: "帮助",
+            style: .plain,
+            target: self,
+            action: #selector(handleHelpTappedFromToolbar)
+        )
+
+        toolbar.items = [helpItem]
+        toolbar.setContentHuggingPriority(.required, for: .horizontal)
+        toolbar.setContentCompressionResistancePriority(.required, for: .horizontal)
+
+        view.addSubview(toolbar)
+        NSLayoutConstraint.activate([
+            toolbar.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            toolbar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16),
+            toolbar.heightAnchor.constraint(equalToConstant: 44),
+            toolbar.widthAnchor.constraint(greaterThanOrEqualToConstant: 72)
+        ])
+
+        toolbar.alpha = 0
+        toolbar.isHidden = true
+        helpToolbar = toolbar
+    }
+
+    private func setHelpToolbarVisible(_ visible: Bool, animated: Bool) {
+        guard let toolbar = helpToolbar else { return }
+
+        if !animated {
+            toolbar.isHidden = !visible
+            toolbar.alpha = visible ? 1 : 0
+            return
+        }
+
+        if visible { toolbar.isHidden = false }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            toolbar.alpha = visible ? 1 : 0
+        } completion: { _ in
+            toolbar.isHidden = !visible
+        }
+    }
+
+    @objc private func handleHelpTapped() {
+        guard let suggestion = gameScene?.requestHintSuggestion() else {
+            let alert = UIAlertController(title: "提示", message: "暂时没有可用的提示。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "知道了", style: .default))
+            present(alert, animated: true)
+            return
+        }
+
+        currentHintSuggestion = suggestion
+        let message = """
+        橙色框内共有 \(suggestion.mineCount) 个地雷，已发现 \(suggestion.flaggedCount) 个地雷，剩余 \(suggestion.unknownCount) 个未知块。
+        因为 \(suggestion.mineCount) = \(suggestion.flaggedCount) + \(suggestion.unknownCount)，所以未知块都是地雷。
+        """
+
+        let alert = UIAlertController(title: "单点分析法", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            self?.gameScene?.cancelHintSuggestion()
+            self?.currentHintSuggestion = nil
+        })
+        alert.addAction(UIAlertAction(title: "应用", style: .default) { [weak self] _ in
+            guard let self, let suggestion = self.currentHintSuggestion else { return }
+            self.gameScene?.applyHintSuggestion(suggestion)
+            self.currentHintSuggestion = nil
+        })
+        present(alert, animated: true)
+    }
+
+    @objc private func handleHelpTappedFromToolbar() {
+        handleHelpTapped()
+    }
+}
+
 // MARK: - Pan Gesture
 
 extension GameViewController {
@@ -373,7 +715,7 @@ extension GameViewController {
     /// 处理拖拽手势：拖动中移动棋盘，结束时启用惯性滚动。
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         if presentedViewController != nil { return }
-        if systemTabBar?.isHidden != false { return }
+        if startMenuView?.isHidden == false { return }
 
         guard let view = self.view else { return }
 
@@ -402,17 +744,20 @@ extension GameViewController: GameSceneDelegate {
 
     /// 游戏场景请求显示开始菜单（选择难度）。
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
-        setSystemTabBarVisible(false, animated: true)
+        setStartMenuVisible(true, animated: true)
         setHUDVisible(false, animated: true)
+        setHelpToolbarVisible(false, animated: true)
         resetTimer()
-        presentDifficultyAlert()
+        currentHintSuggestion = nil
     }
 
     /// 游戏正式开始：显示 HUD/TabBar。
     func gameSceneDidStartGame(_ scene: GameScene) {
-        setSystemTabBarVisible(true, animated: true)
+        setStartMenuVisible(false, animated: true)
         setHUDVisible(true, animated: true)
+        setHelpToolbarVisible(true, animated: true)
         resetTimer()
+        currentHintSuggestion = nil
     }
 
     /// 首次翻开格子时启动计时。
@@ -445,9 +790,9 @@ extension GameViewController: GameSceneDelegate {
         alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { [weak self] _ in
             guard let self else { return }
             scene.showStartState()
-            self.setSystemTabBarVisible(false, animated: true)
+            self.setStartMenuVisible(true, animated: true)
             self.setHUDVisible(false, animated: true)
-            self.presentDifficultyAlert()
+            self.setHelpToolbarVisible(false, animated: true)
         }))
 
         present(alert, animated: true)
@@ -461,13 +806,15 @@ extension GameViewController: UITabBarDelegate {
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
         switch item.tag {
         case 0:
-            // TODO: 功能1 占位
+            selectStartTab(index: 0)
             break
         case 1:
-            // TODO: 功能2 占位
+            dismissDifficultyAlertIfNeeded()
+            selectStartTab(index: 1)
             break
         case 2:
-            // TODO: 功能3 占位
+            dismissDifficultyAlertIfNeeded()
+            selectStartTab(index: 2)
             break
         default:
             break
@@ -491,5 +838,13 @@ private extension UIAlertAction {
     /// 通过 KVC 为 UIAlertAction 注入系统图标（非公开 API）。
     func setSystemIcon(_ image: UIImage?) {
         self.setValue(image, forKey: "image")
+    }
+}
+
+private extension GameViewController {
+    func dismissDifficultyAlertIfNeeded() {
+        guard let alert = difficultyAlert else { return }
+        alert.dismiss(animated: true)
+        difficultyAlert = nil
     }
 }
