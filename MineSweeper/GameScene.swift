@@ -137,18 +137,156 @@ final class GameScene: SKScene {
     private let revealedFill = SKColor.white.withAlphaComponent(0.70)
     private let revealedStroke = SKColor.systemGray.withAlphaComponent(0.35)
 
+    // MARK: - Glass Tile Style (SpriteKit native)
+
+    private let glassOverlayName = "glassOverlay"
+    private var glassTextureCache: [String: SKTexture] = [:]
+
     private func applyUnrevealedStyle(to cell: Cell) {
-        cell.node.fillColor = unrevealedFill
-        cell.node.strokeColor = unrevealedStroke
-        cell.node.lineWidth = 1
-        cell.node.glowWidth = 1.5
+        // 先清掉旧 overlay
+        cell.node.childNode(withName: glassOverlayName)?.removeFromParent()
+
+        // 未翻开：更“毛玻璃”、更亮边缘
+        cell.node.fillColor = .clear
+        cell.node.strokeColor = .clear
+        cell.node.glowWidth = 0
+        cell.node.lineWidth = 0
+
+        let tex = glassTileTexture(
+            key: "unrevealed_\(Int(tileSize))",
+            size: CGSize(width: tileSize - 2, height: tileSize - 2),
+            cornerRadius: 10,
+            baseAlpha: 0.38,          // 毛玻璃更“雾”
+            borderAlpha: 0.35,
+            highlightAlpha: 0.22,
+            sheenAlpha: 0.18
+        )
+
+        let overlay = SKSpriteNode(texture: tex)
+        overlay.name = glassOverlayName
+        overlay.size = CGSize(width: tileSize - 2, height: tileSize - 2)
+        overlay.zPosition = 1.5
+        overlay.alpha = 1.0
+        cell.node.addChild(overlay)
     }
 
     private func applyRevealedStyle(to cell: Cell) {
-        cell.node.fillColor = revealedFill
-        cell.node.strokeColor = revealedStroke
-        cell.node.lineWidth = 1
+        cell.node.childNode(withName: glassOverlayName)?.removeFromParent()
+
+        cell.node.fillColor = .clear
+        cell.node.strokeColor = .clear
         cell.node.glowWidth = 0
+        cell.node.lineWidth = 0
+
+        let tex = glassTileTexture(
+            key: "revealed_dark_v3_\(Int(tileSize))",   // ✅ 新 key，防缓存
+            size: CGSize(width: tileSize - 2, height: tileSize - 2),
+            cornerRadius: 10,
+            baseAlpha: 0.10,        // ✅ 保持通透（不要加雾）
+            borderAlpha: 0.22,
+            highlightAlpha: 0.24,   // ✅ 玻璃高光仍然存在
+            sheenAlpha: 0.18
+        )
+
+        let overlay = SKSpriteNode(texture: tex)
+        overlay.name = glassOverlayName
+        overlay.size = CGSize(width: tileSize - 2, height: tileSize - 2)
+        overlay.zPosition = 1.5
+        overlay.alpha = 1.0
+
+        // ✅ 关键：用“深冷色”压暗，而不是灰/黑
+        overlay.color = SKColor(
+            red: 0.15,
+            green: 0.25,
+            blue: 0.30,
+            alpha: 1.0
+        )
+        overlay.colorBlendFactor = 0.22   // ✅ 小比例，仍然透
+
+        cell.node.addChild(overlay)
+    }
+
+    private func glassTileTexture(
+        key: String,
+        size: CGSize,
+        cornerRadius: CGFloat,
+        baseAlpha: CGFloat,
+        borderAlpha: CGFloat,
+        highlightAlpha: CGFloat,
+        sheenAlpha: CGFloat
+    ) -> SKTexture {
+        if let cached = glassTextureCache[key] { return cached }
+
+        let renderer = UIGraphicsImageRenderer(size: size)
+        let img = renderer.image { ctx in
+            let cg = ctx.cgContext
+            let rect = CGRect(origin: .zero, size: size)
+
+            // 背景：半透明“玻璃底”
+            let baseColor = UIColor.white.withAlphaComponent(baseAlpha).cgColor
+            let path = UIBezierPath(roundedRect: rect, cornerRadius: cornerRadius)
+            cg.addPath(path.cgPath)
+            cg.setFillColor(baseColor)
+            cg.fillPath()
+
+            // 内阴影（让玻璃更有厚度）
+            cg.saveGState()
+            cg.addPath(path.cgPath)
+            cg.clip()
+            cg.setShadow(offset: CGSize(width: 0, height: 2), blur: 10, color: UIColor.black.withAlphaComponent(0.10).cgColor)
+            cg.setFillColor(UIColor.clear.cgColor)
+            cg.fill(rect.insetBy(dx: -20, dy: -20))
+            cg.restoreGState()
+
+            // 上侧高光（模拟曲率）
+            cg.saveGState()
+            cg.addPath(path.cgPath)
+            cg.clip()
+            let topGlowRect = CGRect(x: 0, y: 0, width: size.width, height: size.height * 0.45)
+            let colors = [
+                UIColor.white.withAlphaComponent(highlightAlpha).cgColor,
+                UIColor.white.withAlphaComponent(0.0).cgColor
+            ] as CFArray
+            let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(), colors: colors, locations: [0, 1])!
+            cg.drawLinearGradient(grad,
+                                  start: CGPoint(x: 0, y: 0),
+                                  end: CGPoint(x: 0, y: topGlowRect.maxY),
+                                  options: [])
+            cg.restoreGState()
+
+            // 斜向“高光带”（玻璃反光）
+            cg.saveGState()
+            cg.addPath(path.cgPath)
+            cg.clip()
+
+            let sheenPath = UIBezierPath()
+            sheenPath.move(to: CGPoint(x: -size.width * 0.2, y: size.height * 0.15))
+            sheenPath.addLine(to: CGPoint(x: size.width * 0.6, y: -size.height * 0.2))
+            sheenPath.addLine(to: CGPoint(x: size.width * 1.2, y: size.height * 0.55))
+            sheenPath.addLine(to: CGPoint(x: size.width * 0.4, y: size.height * 0.9))
+            sheenPath.close()
+
+            cg.addPath(sheenPath.cgPath)
+            cg.setFillColor(UIColor.white.withAlphaComponent(sheenAlpha).cgColor)
+            cg.fillPath()
+            cg.restoreGState()
+
+            // 边框（玻璃边缘）
+            cg.addPath(path.cgPath)
+            cg.setStrokeColor(UIColor.white.withAlphaComponent(borderAlpha).cgColor)
+            cg.setLineWidth(1.0)
+            cg.strokePath()
+
+            // 细微外发光（更“玻璃”）
+            cg.addPath(path.cgPath)
+            cg.setStrokeColor(UIColor.white.withAlphaComponent(0.10).cgColor)
+            cg.setLineWidth(2.0)
+            cg.strokePath()
+        }
+
+        let texture = SKTexture(image: img)
+        glassTextureCache[key] = texture
+        return texture
     }
 
     // MARK: - Neighbor Preview Highlight
@@ -520,9 +658,9 @@ final class GameScene: SKScene {
 
     // MARK: - Reveal / Flag
 
+    // 翻开格子
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
-        clearAllNeighborPreviewOverlays()
 
         if isFirstMove {
             placeMines(excluding: cell)
@@ -530,11 +668,13 @@ final class GameScene: SKScene {
         }
 
         cell.isRevealed = true
-        applyRevealedStyle(to: cell)
         revealedCount += 1
 
         feedbackGenerator.impactOccurred()
         feedbackGenerator.prepare()
+
+        // 翻开后添加玻璃质感效果
+        applyRevealedStyle(to: cell)
 
         if cell.hasMine {
             cell.label.text = "💣"
@@ -554,6 +694,7 @@ final class GameScene: SKScene {
             endGame(didWin: true)
         }
     }
+
 
     private func revealNeighbors(from cell: Cell) {
         var queue = [cell]
