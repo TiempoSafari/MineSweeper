@@ -23,6 +23,7 @@ final class GameViewController: UIViewController {
 
     // 游戏内帮助按钮
     private var helpButton: UIButton?
+    private var currentHintSuggestion: GameScene.HintSuggestion?
 
     // 难度选择弹窗（用于允许取消）
     private weak var difficultyAlert: UIAlertController?
@@ -568,8 +569,29 @@ extension GameViewController {
     }
 
     @objc private func handleHelpTapped() {
-        let alert = UIAlertController(title: "帮助", message: "帮助内容正在准备中。", preferredStyle: .alert)
-        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        guard let suggestion = gameScene?.requestHintSuggestion() else {
+            let alert = UIAlertController(title: "提示", message: "暂时没有可用的提示。", preferredStyle: .alert)
+            alert.addAction(UIAlertAction(title: "知道了", style: .default))
+            present(alert, animated: true)
+            return
+        }
+
+        currentHintSuggestion = suggestion
+        let message = """
+        橙色框内共有 \(suggestion.mineCount) 个地雷，已发现 \(suggestion.flaggedCount) 个地雷，剩余 \(suggestion.unknownCount) 个未知块。
+        因为 \(suggestion.mineCount) = \(suggestion.flaggedCount) + \(suggestion.unknownCount)，所以未知块都是地雷。
+        """
+
+        let alert = UIAlertController(title: "单点分析法", message: message, preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            self?.gameScene?.cancelHintSuggestion()
+            self?.currentHintSuggestion = nil
+        })
+        alert.addAction(UIAlertAction(title: "应用", style: .default) { [weak self] _ in
+            guard let self, let suggestion = self.currentHintSuggestion else { return }
+            self.gameScene?.applyHintSuggestion(suggestion)
+            self.currentHintSuggestion = nil
+        })
         present(alert, animated: true)
     }
 }
@@ -622,6 +644,7 @@ extension GameViewController: GameSceneDelegate {
         setHUDVisible(false, animated: true)
         setHelpButtonVisible(false, animated: true)
         resetTimer()
+        currentHintSuggestion = nil
     }
 
     /// 游戏正式开始：显示 HUD/TabBar。
@@ -630,6 +653,7 @@ extension GameViewController: GameSceneDelegate {
         setHUDVisible(true, animated: true)
         setHelpButtonVisible(true, animated: true)
         resetTimer()
+        currentHintSuggestion = nil
     }
 
     /// 首次翻开格子时启动计时。
