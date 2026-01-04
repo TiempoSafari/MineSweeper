@@ -71,11 +71,6 @@ final class GameScene: SKScene {
         }
     }
 
-    enum ChallengeTool {
-        case unlock
-        case scan
-        case autoFlag
-    }
 
     // MARK: Properties
     var entities = [GKEntity]()
@@ -233,32 +228,6 @@ final class GameScene: SKScene {
         cell.node.addChild(overlay)
     }
 
-    private func applyLockedStyle(to cell: Cell) {
-        let lockBadge = SKShapeNode(
-            rectOf: CGSize(width: tileSize - 12, height: tileSize - 12),
-            cornerRadius: 10
-        )
-        lockBadge.fillColor = SKColor.black.withAlphaComponent(0.24)
-        lockBadge.strokeColor = SKColor.white.withAlphaComponent(0.45)
-        lockBadge.lineWidth = 1
-        lockBadge.zPosition = 4
-
-        let lockLabel = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
-        lockLabel.fontSize = tileSize * 0.38
-        lockLabel.fontColor = SKColor.white
-        lockLabel.text = "🔒"
-        lockLabel.verticalAlignmentMode = .center
-        lockLabel.horizontalAlignmentMode = .center
-        lockLabel.zPosition = 5
-
-        let container = SKNode()
-        container.addChild(lockBadge)
-        container.addChild(lockLabel)
-        container.zPosition = 4
-
-        cell.node.addChild(container)
-        cell.lockOverlay = container
-    }
 
     /// 生成玻璃质感纹理，并按 key 缓存复用。
     private func glassTileTexture(
@@ -815,14 +784,6 @@ final class GameScene: SKScene {
     /// 翻开单个格子，并处理胜负判断。
     private func reveal(cell: Cell) {
         guard !cell.isRevealed, !cell.isFlagged else { return }
-        if cell.isLocked {
-            if pendingUnlock {
-                unlock(cell: cell)
-                pendingUnlock = false
-            }
-            return
-        }
-
         if isFirstMove {
             placeMines(excluding: cell)
             isFirstMove = false

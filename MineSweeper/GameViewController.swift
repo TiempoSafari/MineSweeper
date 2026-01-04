@@ -85,9 +85,6 @@ final class GameViewController: UIViewController {
             challengeCoordinator.onHUDUpdate = { [weak self] title, subtitle in
                 self?.updateHUD(title: title, subtitle: subtitle)
             }
-            challengeCoordinator.onItemsUpdate = { [weak self] items in
-                self?.updateItemToolbar(items: items)
-            }
             modeCoordinators = [
                 traditionalCoordinator,
                 challengeCoordinator,

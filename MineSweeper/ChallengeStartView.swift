@@ -5,12 +5,10 @@ final class ChallengeStartView: UIView {
     private let onStart: (Int) -> Void
 
     private let progressLabel = UILabel()
-    private let progressView = UIProgressView(progressViewStyle: .default)
     private let levelTitleLabel = UILabel()
     private let levelDetailLabel = UILabel()
     private let difficultyBadge = UILabel()
     private let goalsStack = UIStackView()
-    private let rewardLabel = UILabel()
     private let segmentedControl: UISegmentedControl
     private let startButton = UIButton(type: .system)
 
@@ -51,14 +49,12 @@ final class ChallengeStartView: UIView {
 
         let subtitleLabel = UILabel()
         subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
-        subtitleLabel.text = "逐关挑战，完成目标领取奖励"
+        subtitleLabel.text = "逐关挑战，完成目标推进下一关"
         subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
         subtitleLabel.textColor = .secondaryLabel
         subtitleLabel.textAlignment = .center
 
-        let progressStack = makeProgressStack()
         let levelCard = makeLevelCard()
-        let rewardCard = makeRewardCard()
         let buttonView = makeStartButton()
 
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
@@ -66,7 +62,12 @@ final class ChallengeStartView: UIView {
         segmentedControl.addTarget(self, action: #selector(handleSegmentChanged), for: .valueChanged)
         updateSegmentStates()
 
-        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, progressStack, segmentedControl, levelCard, rewardCard, buttonView])
+        progressLabel.translatesAutoresizingMaskIntoConstraints = false
+        progressLabel.font = UIFont.systemFont(ofSize: 13, weight: .medium)
+        progressLabel.textColor = .secondaryLabel
+        progressLabel.textAlignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, progressLabel, segmentedControl, levelCard, buttonView])
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.spacing = 14
@@ -80,32 +81,6 @@ final class ChallengeStartView: UIView {
             stack.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -24),
             segmentedControl.widthAnchor.constraint(equalTo: stack.widthAnchor)
         ])
-    }
-
-    private func makeProgressStack() -> UIStackView {
-        progressLabel.translatesAutoresizingMaskIntoConstraints = false
-        progressLabel.font = UIFont.systemFont(ofSize: 13, weight: .medium)
-        progressLabel.textColor = .secondaryLabel
-        progressLabel.textAlignment = .center
-
-        progressView.translatesAutoresizingMaskIntoConstraints = false
-        progressView.trackTintColor = UIColor.secondarySystemFill
-        progressView.progressTintColor = UIColor.systemGreen
-        progressView.layer.cornerRadius = 4
-        progressView.clipsToBounds = true
-
-        let stack = UIStackView(arrangedSubviews: [progressLabel, progressView])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.spacing = 6
-        stack.alignment = .fill
-
-        NSLayoutConstraint.activate([
-            progressView.heightAnchor.constraint(equalToConstant: 6),
-            stack.widthAnchor.constraint(equalToConstant: 260)
-        ])
-
-        return stack
     }
 
     private func makeLevelCard() -> UIView {
@@ -167,42 +142,6 @@ final class ChallengeStartView: UIView {
         return card
     }
 
-    private func makeRewardCard() -> UIView {
-        let card = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
-        card.translatesAutoresizingMaskIntoConstraints = false
-        card.layer.cornerRadius = 16
-        card.layer.masksToBounds = true
-        card.layer.borderWidth = 0.8
-        card.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
-
-        let title = UILabel()
-        title.translatesAutoresizingMaskIntoConstraints = false
-        title.font = UIFont.systemFont(ofSize: 14, weight: .semibold)
-        title.textColor = .label
-        title.text = "奖励 / 道具"
-
-        rewardLabel.translatesAutoresizingMaskIntoConstraints = false
-        rewardLabel.font = UIFont.systemFont(ofSize: 13, weight: .regular)
-        rewardLabel.textColor = .secondaryLabel
-        rewardLabel.numberOfLines = 0
-
-        let stack = UIStackView(arrangedSubviews: [title, rewardLabel])
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.axis = .vertical
-        stack.spacing = 6
-        stack.alignment = .leading
-
-        card.contentView.addSubview(stack)
-        NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: card.contentView.leadingAnchor, constant: 16),
-            stack.trailingAnchor.constraint(equalTo: card.contentView.trailingAnchor, constant: -16),
-            stack.topAnchor.constraint(equalTo: card.contentView.topAnchor, constant: 12),
-            stack.bottomAnchor.constraint(equalTo: card.contentView.bottomAnchor, constant: -12)
-        ])
-
-        return card
-    }
-
     private func makeStartButton() -> UIView {
         startButton.translatesAutoresizingMaskIntoConstraints = false
         startButton.setTitle("开始闯关", for: .normal)
@@ -239,7 +178,6 @@ final class ChallengeStartView: UIView {
         difficultyBadge.text = "  \(level.difficultyHint)  "
 
         progressLabel.text = "当前关卡 第\(index + 1)关"
-        progressView.setProgress(1.0, animated: true)
 
         goalsStack.arrangedSubviews.forEach { subview in
             goalsStack.removeArrangedSubview(subview)
@@ -254,7 +192,6 @@ final class ChallengeStartView: UIView {
             goalsStack.addArrangedSubview(label)
         }
 
-        rewardLabel.text = level.reward
         updateSegmentStates()
     }
 
@@ -294,7 +231,6 @@ final class ChallengeStartView: UIView {
         let isActive = selectedIndex == unlockedIndex && !isCompleted
         let titleSuffix = isCompleted ? "（已通关）" : "（未解锁）"
         levelTitleLabel.text = isActive ? baseLevelTitle : "\(baseLevelTitle)\(titleSuffix)"
-        rewardLabel.textColor = isActive ? .secondaryLabel : .tertiaryLabel
         startButton.isEnabled = isActive
         startButton.alpha = isActive ? 1.0 : 0.5
     }
