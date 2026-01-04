@@ -13,8 +13,19 @@ final class GameViewController: UIViewController {
     /// 手势：用于拖拽棋盘（带惯性）。
     private var panGesture: UIPanGestureRecognizer?
 
-    // 系统级底部导航（iOS 26 自动 Liquid Glass）
-    private var systemTabBar: UITabBar?
+    // 开始界面底部导航
+    private var startMenuView: UIView?
+    private var startTabBar: UITabBar?
+    private var startContentView: UIView?
+    private var traditionalView: UIView?
+    private var challengeView: UIView?
+    private var endlessView: UIView?
+
+    // 游戏内帮助按钮
+    private var helpButton: UIButton?
+
+    // 难度选择弹窗（用于允许取消）
+    private weak var difficultyAlert: UIAlertController?
 
     // 系统级 HUD（iOS 26 自动 Liquid Glass）
     private var hudView: UIVisualEffectView?
@@ -72,15 +83,14 @@ final class GameViewController: UIViewController {
             sceneNode.uiDelegate = self
 
             configurePanGesture()
-            configureSystemTabBar()
+            configureStartMenu()
             configureSystemHUD()
+            configureHelpButton()
 
-            setSystemTabBarVisible(false, animated: false)
+            setStartMenuVisible(true, animated: false)
             setHUDVisible(false, animated: false)
+            setHelpButtonVisible(false, animated: false)
 
-            DispatchQueue.main.async { [weak self] in
-                self?.presentDifficultyAlert()
-            }
         }
     }
 
@@ -111,6 +121,7 @@ extension GameViewController {
         for opt in difficulties {
             let action = UIAlertAction(title: opt.title, style: .default) { [weak self] _ in
                 guard let self else { return }
+                self.difficultyAlert = nil
                 self.currentDifficulty = opt
 
                 // 先写入 HUD 基础信息（标记数会通过 delegate 实时更新）
@@ -128,58 +139,210 @@ extension GameViewController {
             alert.addAction(action)
         }
 
+        let cancelAction = UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
+            self?.difficultyAlert = nil
+        }
+        alert.addAction(cancelAction)
+
+        difficultyAlert = alert
         present(alert, animated: true)
+    }
+
+    @objc private func handleStartGameTapped() {
+        presentDifficultyAlert()
     }
 }
 
-// MARK: - System UITabBar (in-game only)
+// MARK: - Start Menu TabBar
 
 extension GameViewController {
 
-    /// 创建并布局系统 TabBar（当前为功能占位）。
-    private func configureSystemTabBar() {
+    /// 创建并布局开始界面（包含 TabBar + 内容区）。
+    private func configureStartMenu() {
+        let menuView = UIView()
+        menuView.translatesAutoresizingMaskIntoConstraints = false
+        menuView.backgroundColor = .clear
+
+        let contentView = UIView()
+        contentView.translatesAutoresizingMaskIntoConstraints = false
+
         let tabBar = UITabBar()
         tabBar.translatesAutoresizingMaskIntoConstraints = false
         tabBar.delegate = self
 
-        let item1 = UITabBarItem(title: "功能1", image: UIImage(systemName: "circle.grid.2x2"), tag: 0)
-        let item2 = UITabBarItem(title: "功能2", image: UIImage(systemName: "wand.and.stars"), tag: 1)
-        let item3 = UITabBarItem(title: "功能3", image: UIImage(systemName: "gearshape"), tag: 2)
+        let item1 = UITabBarItem(title: "传统", image: UIImage(systemName: "square.grid.2x2"), tag: 0)
+        let item2 = UITabBarItem(title: "闯关", image: UIImage(systemName: "flag.checkered"), tag: 1)
+        let item3 = UITabBarItem(title: "无尽", image: UIImage(systemName: "infinity"), tag: 2)
         tabBar.items = [item1, item2, item3]
-        tabBar.selectedItem = item2
+        tabBar.selectedItem = item1
 
         let appearance = UITabBarAppearance()
         appearance.configureWithDefaultBackground()
         tabBar.standardAppearance = appearance
         tabBar.scrollEdgeAppearance = appearance
 
-        view.addSubview(tabBar)
+        menuView.addSubview(contentView)
+        menuView.addSubview(tabBar)
+        view.addSubview(menuView)
+
         NSLayoutConstraint.activate([
-            tabBar.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            tabBar.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            tabBar.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor)
+            menuView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            menuView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            menuView.topAnchor.constraint(equalTo: view.topAnchor),
+            menuView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            tabBar.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            tabBar.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            tabBar.bottomAnchor.constraint(equalTo: menuView.safeAreaLayoutGuide.bottomAnchor),
+
+            contentView.leadingAnchor.constraint(equalTo: menuView.leadingAnchor),
+            contentView.trailingAnchor.constraint(equalTo: menuView.trailingAnchor),
+            contentView.topAnchor.constraint(equalTo: menuView.topAnchor),
+            contentView.bottomAnchor.constraint(equalTo: tabBar.topAnchor)
         ])
 
-        systemTabBar = tabBar
+        startMenuView = menuView
+        startTabBar = tabBar
+        startContentView = contentView
+
+        traditionalView = buildTraditionalView()
+        challengeView = buildPlaceholderView(title: "闯关模式", message: "敬请期待")
+        endlessView = buildPlaceholderView(title: "无尽模式", message: "敬请期待")
+
+        if let traditionalView, let challengeView, let endlessView {
+            contentView.addSubview(traditionalView)
+            contentView.addSubview(challengeView)
+            contentView.addSubview(endlessView)
+
+            [traditionalView, challengeView, endlessView].forEach { subview in
+                subview.translatesAutoresizingMaskIntoConstraints = false
+                NSLayoutConstraint.activate([
+                    subview.leadingAnchor.constraint(equalTo: contentView.leadingAnchor),
+                    subview.trailingAnchor.constraint(equalTo: contentView.trailingAnchor),
+                    subview.topAnchor.constraint(equalTo: contentView.topAnchor),
+                    subview.bottomAnchor.constraint(equalTo: contentView.bottomAnchor)
+                ])
+            }
+        }
+
+        selectStartTab(index: 0)
     }
 
-    /// 显示/隐藏 TabBar，支持动画过渡。
-    private func setSystemTabBarVisible(_ visible: Bool, animated: Bool) {
-        guard let tabBar = systemTabBar else { return }
-        tabBar.isUserInteractionEnabled = visible
+    /// 显示/隐藏开始界面，支持动画过渡。
+    private func setStartMenuVisible(_ visible: Bool, animated: Bool) {
+        guard let menuView = startMenuView else { return }
+        menuView.isUserInteractionEnabled = visible
 
         if !animated {
-            tabBar.isHidden = !visible
-            tabBar.alpha = visible ? 1 : 0
+            menuView.isHidden = !visible
+            menuView.alpha = visible ? 1 : 0
             return
         }
 
-        if visible { tabBar.isHidden = false }
+        if visible { menuView.isHidden = false }
         UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
-            tabBar.alpha = visible ? 1 : 0
+            menuView.alpha = visible ? 1 : 0
         } completion: { _ in
-            tabBar.isHidden = !visible
+            menuView.isHidden = !visible
         }
+    }
+
+    private func selectStartTab(index: Int) {
+        traditionalView?.isHidden = index != 0
+        challengeView?.isHidden = index != 1
+        endlessView?.isHidden = index != 2
+    }
+
+    private func buildTraditionalView() -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "传统模式"
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+
+        let subtitleLabel = UILabel()
+        subtitleLabel.translatesAutoresizingMaskIntoConstraints = false
+        subtitleLabel.text = "选择难度开始游戏"
+        subtitleLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        subtitleLabel.textColor = .secondaryLabel
+        subtitleLabel.textAlignment = .center
+
+        let startButton = UIButton(type: .system)
+        startButton.translatesAutoresizingMaskIntoConstraints = false
+        startButton.setTitle("开始游戏", for: .normal)
+        startButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        startButton.tintColor = .label
+        startButton.addTarget(self, action: #selector(handleStartGameTapped), for: .touchUpInside)
+
+        let glassButton = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterial))
+        glassButton.translatesAutoresizingMaskIntoConstraints = false
+        glassButton.layer.cornerRadius = 18
+        glassButton.layer.masksToBounds = true
+        glassButton.layer.borderWidth = 0.8
+        glassButton.layer.borderColor = UIColor.white.withAlphaComponent(0.20).cgColor
+        glassButton.contentView.addSubview(startButton)
+
+        NSLayoutConstraint.activate([
+            startButton.topAnchor.constraint(equalTo: glassButton.contentView.topAnchor, constant: 10),
+            startButton.bottomAnchor.constraint(equalTo: glassButton.contentView.bottomAnchor, constant: -10),
+            startButton.leadingAnchor.constraint(equalTo: glassButton.contentView.leadingAnchor, constant: 18),
+            startButton.trailingAnchor.constraint(equalTo: glassButton.contentView.trailingAnchor, constant: -18)
+        ])
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, glassButton])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 12
+        stack.alignment = .center
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24)
+        ])
+
+        return container
+    }
+
+    private func buildPlaceholderView(title: String, message: String) -> UIView {
+        let container = UIView()
+        container.backgroundColor = .clear
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = title
+        titleLabel.font = UIFont.systemFont(ofSize: 24, weight: .semibold)
+        titleLabel.textColor = .label
+        titleLabel.textAlignment = .center
+
+        let messageLabel = UILabel()
+        messageLabel.translatesAutoresizingMaskIntoConstraints = false
+        messageLabel.text = message
+        messageLabel.font = UIFont.systemFont(ofSize: 14, weight: .regular)
+        messageLabel.textColor = .secondaryLabel
+        messageLabel.textAlignment = .center
+
+        let stack = UIStackView(arrangedSubviews: [titleLabel, messageLabel])
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.spacing = 8
+        stack.alignment = .center
+
+        container.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -24)
+        ])
+
+        return container
     }
 }
 
@@ -358,6 +521,59 @@ extension GameViewController {
     }
 }
 
+// MARK: - Help Button
+
+extension GameViewController {
+
+    private func configureHelpButton() {
+        let button = UIButton(type: .system)
+        button.translatesAutoresizingMaskIntoConstraints = false
+
+        var config = UIButton.Configuration.plain()
+        config.title = "帮助"
+        config.image = UIImage(systemName: "questionmark.circle")
+        config.imagePlacement = .leading
+        config.imagePadding = 6
+        button.configuration = config
+        button.tintColor = .label
+
+        button.addTarget(self, action: #selector(handleHelpTapped), for: .touchUpInside)
+
+        view.addSubview(button)
+        NSLayoutConstraint.activate([
+            button.trailingAnchor.constraint(equalTo: view.safeAreaLayoutGuide.trailingAnchor, constant: -16),
+            button.bottomAnchor.constraint(equalTo: view.safeAreaLayoutGuide.bottomAnchor, constant: -16)
+        ])
+
+        button.alpha = 0
+        button.isHidden = true
+        helpButton = button
+    }
+
+    private func setHelpButtonVisible(_ visible: Bool, animated: Bool) {
+        guard let button = helpButton else { return }
+
+        if !animated {
+            button.isHidden = !visible
+            button.alpha = visible ? 1 : 0
+            return
+        }
+
+        if visible { button.isHidden = false }
+        UIView.animate(withDuration: 0.2, delay: 0, options: [.curveEaseOut, .allowUserInteraction]) {
+            button.alpha = visible ? 1 : 0
+        } completion: { _ in
+            button.isHidden = !visible
+        }
+    }
+
+    @objc private func handleHelpTapped() {
+        let alert = UIAlertController(title: "帮助", message: "帮助内容正在准备中。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "知道了", style: .default))
+        present(alert, animated: true)
+    }
+}
+
 // MARK: - Pan Gesture
 
 extension GameViewController {
@@ -373,7 +589,7 @@ extension GameViewController {
     /// 处理拖拽手势：拖动中移动棋盘，结束时启用惯性滚动。
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         if presentedViewController != nil { return }
-        if systemTabBar?.isHidden != false { return }
+        if startMenuView?.isHidden == false { return }
 
         guard let view = self.view else { return }
 
@@ -402,16 +618,17 @@ extension GameViewController: GameSceneDelegate {
 
     /// 游戏场景请求显示开始菜单（选择难度）。
     func gameSceneDidRequestStartMenu(_ scene: GameScene) {
-        setSystemTabBarVisible(false, animated: true)
+        setStartMenuVisible(true, animated: true)
         setHUDVisible(false, animated: true)
+        setHelpButtonVisible(false, animated: true)
         resetTimer()
-        presentDifficultyAlert()
     }
 
     /// 游戏正式开始：显示 HUD/TabBar。
     func gameSceneDidStartGame(_ scene: GameScene) {
-        setSystemTabBarVisible(true, animated: true)
+        setStartMenuVisible(false, animated: true)
         setHUDVisible(true, animated: true)
+        setHelpButtonVisible(true, animated: true)
         resetTimer()
     }
 
@@ -445,9 +662,9 @@ extension GameViewController: GameSceneDelegate {
         alert.addAction(UIAlertAction(title: "确定", style: .default, handler: { [weak self] _ in
             guard let self else { return }
             scene.showStartState()
-            self.setSystemTabBarVisible(false, animated: true)
+            self.setStartMenuVisible(true, animated: true)
             self.setHUDVisible(false, animated: true)
-            self.presentDifficultyAlert()
+            self.setHelpButtonVisible(false, animated: true)
         }))
 
         present(alert, animated: true)
@@ -461,13 +678,15 @@ extension GameViewController: UITabBarDelegate {
     func tabBar(_ tabBar: UITabBar, didSelect item: UITabBarItem) {
         switch item.tag {
         case 0:
-            // TODO: 功能1 占位
+            selectStartTab(index: 0)
             break
         case 1:
-            // TODO: 功能2 占位
+            dismissDifficultyAlertIfNeeded()
+            selectStartTab(index: 1)
             break
         case 2:
-            // TODO: 功能3 占位
+            dismissDifficultyAlertIfNeeded()
+            selectStartTab(index: 2)
             break
         default:
             break
@@ -491,5 +710,13 @@ private extension UIAlertAction {
     /// 通过 KVC 为 UIAlertAction 注入系统图标（非公开 API）。
     func setSystemIcon(_ image: UIImage?) {
         self.setValue(image, forKey: "image")
+    }
+}
+
+private extension GameViewController {
+    func dismissDifficultyAlertIfNeeded() {
+        guard let alert = difficultyAlert else { return }
+        alert.dismiss(animated: true)
+        difficultyAlert = nil
     }
 }
