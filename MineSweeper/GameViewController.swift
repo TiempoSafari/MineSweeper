@@ -20,8 +20,21 @@ final class GameViewController: UIViewController {
     private var helpToolbar: UIToolbar?
     private var currentHintSuggestion: GameScene.HintSuggestion?
 
-    // 难度选择弹窗（用于允许取消）
-    private weak var difficultyAlert: UIAlertController?
+    private let traditionalCoordinator = TraditionalModeCoordinator()
+    private let challengeCoordinator = PlaceholderModeCoordinator(
+        kind: .challenge,
+        title: "闯关",
+        iconName: "flag.checkered",
+        message: "敬请期待"
+    )
+    private let endlessCoordinator = PlaceholderModeCoordinator(
+        kind: .endless,
+        title: "无尽",
+        iconName: "infinity",
+        message: "敬请期待"
+    )
+    private var modeCoordinators: [GameModeCoordinating] = []
+    private var currentModeIndex: Int?
 
     // 系统级 HUD（iOS 26 自动 Liquid Glass）
     private var hudView: UIVisualEffectView?
@@ -36,18 +49,7 @@ final class GameViewController: UIViewController {
     private var gameStartTime: Date?
     private var elapsedSeconds: Int = 0
 
-    /// 当前选择的难度配置。
-    private var currentDifficulty: DifficultyOption?
-
-    /// 预设难度列表（用于弹窗）。
-    private let difficulties: [DifficultyOption] = [
-        DifficultyOption(title: "入门", rows: 9,  cols: 9,  mines: 10, icon: "sparkles"),
-        DifficultyOption(title: "简单", rows: 12, cols: 9,  mines: 18, icon: "leaf"),
-        DifficultyOption(title: "中等", rows: 16, cols: 9,  mines: 30, icon: "circle.grid.3x3"),
-        DifficultyOption(title: "困难", rows: 16, cols: 16, mines: 40, icon: "mountain.2"),
-        DifficultyOption(title: "专家", rows: 30, cols: 16, mines: 80, icon: "flame"),
-        DifficultyOption(title: "大师", rows: 30, cols: 30, mines: 160, icon: "crown")
-    ]
+    // 传统模式协调器负责难度选择与启动流程
 
     // MARK: Lifecycle
 
@@ -77,6 +79,16 @@ final class GameViewController: UIViewController {
 
             gameScene = sceneNode
             sceneNode.uiDelegate = self
+            traditionalCoordinator.presentingViewController = self
+            traditionalCoordinator.gameScene = sceneNode
+            traditionalCoordinator.onHUDUpdate = { [weak self] title, subtitle in
+                self?.updateHUD(title: title, subtitle: subtitle)
+            }
+            modeCoordinators = [
+                traditionalCoordinator,
+                challengeCoordinator,
+                endlessCoordinator
+            ]
 
             configurePanGesture()
             configureStartMenu()
@@ -100,72 +112,15 @@ final class GameViewController: UIViewController {
     override var prefersStatusBarHidden: Bool { true }
 }
 
-// MARK: - Difficulty Alert (system)
-
-extension GameViewController {
-
-    /// 弹出难度选择弹窗，并在选择后开始游戏。
-    private func presentDifficultyAlert() {
-        if presentedViewController != nil { return }
-
-        let alert = UIAlertController(
-            title: "扫雷",
-            message: nil,          // ✅ 去掉“选择难度开始”& 小胶囊
-            preferredStyle: .alert
-        )
-
-        for opt in difficulties {
-            let action = UIAlertAction(title: opt.title, style: .default) { [weak self] _ in
-                guard let self else { return }
-                self.difficultyAlert = nil
-                self.currentDifficulty = opt
-
-                // 先写入 HUD 基础信息（标记数会通过 delegate 实时更新）
-                self.updateHUD(
-                    title: "扫雷",
-                    subtitle: "\(opt.title) · \(opt.rows)×\(opt.cols) · 雷 \(opt.mines) · 标记 0"
-                )
-
-                self.gameScene?.startGame(rows: opt.rows, cols: opt.cols, mines: opt.mines)
-            }
-
-            // ✅ UIAlertAction 没有公开 image 属性，用 KVC 注入
-            action.setSystemIcon(UIImage(systemName: opt.icon))
-
-            alert.addAction(action)
-        }
-
-        let cancelAction = UIAlertAction(title: "取消", style: .cancel) { [weak self] _ in
-            self?.difficultyAlert = nil
-        }
-        alert.addAction(cancelAction)
-
-        difficultyAlert = alert
-        present(alert, animated: true)
-    }
-
-    @objc private func handleStartGameTapped() {
-        presentDifficultyAlert()
-    }
-}
-
 // MARK: - Start Menu TabBar
 
 extension GameViewController {
 
     /// 创建并布局开始界面（包含 TabBar + 内容区）。
     private func configureStartMenu() {
-        let traditionalView = TraditionalStartView { [weak self] in
-            self?.handleStartGameTapped()
+        let modes = modeCoordinators.map {
+            StartMenuMode(title: $0.title, iconName: $0.iconName, contentView: $0.startMenuView)
         }
-        let challengeView = PlaceholderStartView(title: "闯关模式", message: "敬请期待")
-        let endlessView = PlaceholderStartView(title: "无尽模式", message: "敬请期待")
-
-        let modes: [StartMenuMode] = [
-            StartMenuMode(title: "传统", iconName: "square.grid.2x2", contentView: traditionalView),
-            StartMenuMode(title: "闯关", iconName: "flag.checkered", contentView: challengeView),
-            StartMenuMode(title: "无尽", iconName: "infinity", contentView: endlessView)
-        ]
 
         let menuView = StartMenuView(modes: modes)
         menuView.translatesAutoresizingMaskIntoConstraints = false
@@ -180,6 +135,8 @@ extension GameViewController {
         ])
 
         startMenuView = menuView
+        currentModeIndex = 0
+        modeCoordinators.first?.didSelect()
     }
 
     /// 显示/隐藏开始界面，支持动画过渡。
@@ -508,6 +465,7 @@ extension GameViewController: GameSceneDelegate {
         setHelpToolbarVisible(false, animated: true)
         resetTimer()
         currentHintSuggestion = nil
+        traditionalCoordinator.resetSelection()
     }
 
     /// 游戏正式开始：显示 HUD/TabBar。
@@ -526,14 +484,7 @@ extension GameViewController: GameSceneDelegate {
 
     /// 旗子数量变化时更新 HUD 文本。
     func gameScene(_ scene: GameScene, didUpdateFlagCount flagged: Int, mineCount: Int) {
-        if let opt = currentDifficulty {
-            updateHUD(
-                title: "扫雷",
-                subtitle: "\(opt.title) · \(opt.rows)×\(opt.cols) · 雷 \(mineCount) · 标记 \(flagged)"
-            )
-        } else {
-            updateHUD(title: "扫雷", subtitle: "雷 \(mineCount) · 标记 \(flagged)")
-        }
+        traditionalCoordinator.updateHUDForFlags(flagged: flagged, mineCount: mineCount)
     }
 
     /// 游戏结束（胜/负），弹窗提示并回到开始界面。
@@ -562,35 +513,10 @@ extension GameViewController: GameSceneDelegate {
 
 extension GameViewController: StartMenuViewDelegate {
     func startMenuView(_ menuView: StartMenuView, didSelectModeAt index: Int) {
-        if index != 0 {
-            dismissDifficultyAlertIfNeeded()
+        if let previousIndex = currentModeIndex, previousIndex != index {
+            modeCoordinators[previousIndex].didDeselect()
         }
-    }
-}
-
-// MARK: - Models
-
-private struct DifficultyOption {
-    let title: String
-    let rows: Int
-    let cols: Int
-    let mines: Int
-    let icon: String
-}
-
-// MARK: - UIAlertAction icon helper (KVC)
-
-private extension UIAlertAction {
-    /// 通过 KVC 为 UIAlertAction 注入系统图标（非公开 API）。
-    func setSystemIcon(_ image: UIImage?) {
-        self.setValue(image, forKey: "image")
-    }
-}
-
-private extension GameViewController {
-    func dismissDifficultyAlertIfNeeded() {
-        guard let alert = difficultyAlert else { return }
-        alert.dismiss(animated: true)
-        difficultyAlert = nil
+        currentModeIndex = index
+        modeCoordinators[index].didSelect()
     }
 }
