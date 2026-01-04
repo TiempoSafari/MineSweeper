@@ -1,8 +1,3 @@
-//
-//  GameScene.swift
-//  MineSweeper
-//
-
 import SpriteKit
 import GameplayKit
 import UIKit

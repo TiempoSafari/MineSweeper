@@ -1,10 +1,3 @@
-//
-//  GameViewController.swift
-//  MineSweeper
-//
-//  System alert difficulty + system UITabBar + system Liquid-Glass HUD overlay
-//
-
 import UIKit
 import SpriteKit
 import GameplayKit
