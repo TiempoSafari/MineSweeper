@@ -717,25 +717,98 @@ final class GameScene: SKScene {
 
     private func configureBackground() {
         backgroundNode.removeFromParent()
-        let texture = gradientTexture(
-            start: UIColor(red: 0.76, green: 0.86, blue: 1.0, alpha: 1.0),
-            end: UIColor(red: 0.98, green: 0.99, blue: 1.0, alpha: 1.0)
-        )
+
+        let texture = glassmorphismBackgroundTexture(size: size)
         backgroundNode = SKSpriteNode(texture: texture, size: size)
         backgroundNode.position = CGPoint(x: frame.midX, y: frame.midY)
         backgroundNode.zPosition = -10
         addChild(backgroundNode)
     }
 
-    private func gradientTexture(start: UIColor, end: UIColor) -> SKTexture {
-        let gradientLayer = CAGradientLayer()
-        gradientLayer.colors = [start.cgColor, end.cgColor]
-        gradientLayer.frame = CGRect(origin: .zero, size: size)
+    private func glassmorphismBackgroundTexture(size: CGSize) -> SKTexture {
         let renderer = UIGraphicsImageRenderer(size: size)
-        let image = renderer.image { context in
-            gradientLayer.render(in: context.cgContext)
+        let baseImage = renderer.image { ctx in
+            let cg = ctx.cgContext
+
+            // 1) 底色渐变（冷灰蓝）
+            let bg1 = UIColor(red: 0.86, green: 0.90, blue: 0.96, alpha: 1).cgColor
+            let bg2 = UIColor(red: 0.74, green: 0.80, blue: 0.90, alpha: 1).cgColor
+            let grad = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                  colors: [bg1, bg2] as CFArray,
+                                  locations: [0, 1])!
+            cg.drawLinearGradient(
+                grad,
+                start: CGPoint(x: 0, y: 0),
+                end: CGPoint(x: size.width, y: size.height),
+                options: []
+            )
+
+            // 2) 柔和光斑（你图2那种彩色大圆）
+            func addBlob(center: CGPoint, radius: CGFloat, color: UIColor, alpha: CGFloat) {
+                let colors = [
+                    color.withAlphaComponent(alpha).cgColor,
+                    color.withAlphaComponent(0).cgColor
+                ] as CFArray
+
+                let g = CGGradient(colorsSpace: CGColorSpaceCreateDeviceRGB(),
+                                   colors: colors,
+                                   locations: [0, 1])!
+
+                cg.saveGState()
+                cg.drawRadialGradient(
+                    g,
+                    startCenter: center, startRadius: 0,
+                    endCenter: center, endRadius: radius,
+                    options: [.drawsAfterEndLocation]
+                )
+                cg.restoreGState()
+            }
+
+            // 左上偏暖
+            addBlob(center: CGPoint(x: size.width * 0.20, y: size.height * 0.18),
+                    radius: min(size.width, size.height) * 0.45,
+                    color: UIColor(red: 1.00, green: 0.55, blue: 0.25, alpha: 1),
+                    alpha: 0.55)
+
+            // 右上偏蓝
+            addBlob(center: CGPoint(x: size.width * 0.85, y: size.height * 0.22),
+                    radius: min(size.width, size.height) * 0.50,
+                    color: UIColor(red: 0.25, green: 0.65, blue: 1.00, alpha: 1),
+                    alpha: 0.45)
+
+            // 左下偏紫
+            addBlob(center: CGPoint(x: size.width * 0.28, y: size.height * 0.88),
+                    radius: min(size.width, size.height) * 0.55,
+                    color: UIColor(red: 0.72, green: 0.35, blue: 1.00, alpha: 1),
+                    alpha: 0.35)
+
+            // 3) 很轻的“雾化”叠层，让层次更像玻璃拟态
+            cg.setFillColor(UIColor.white.withAlphaComponent(0.06).cgColor)
+            cg.fill(CGRect(origin: .zero, size: size))
         }
-        return SKTexture(image: image)
+
+        // 4) 轻微高斯模糊（让光斑更柔）
+        guard let blurred = gaussianBlur(image: baseImage, radius: 18) else {
+            return SKTexture(image: baseImage)
+        }
+        return SKTexture(image: blurred)
+    }
+
+    private func gaussianBlur(image: UIImage, radius: CGFloat) -> UIImage? {
+        guard let ciImage = CIImage(image: image) else { return nil }
+        let filter = CIFilter(name: "CIGaussianBlur")
+        filter?.setValue(ciImage, forKey: kCIInputImageKey)
+        filter?.setValue(radius, forKey: kCIInputRadiusKey)
+
+        guard let output = filter?.outputImage else { return nil }
+
+        // GaussianBlur 会把边界变大，这里裁回原尺寸
+        let cropRect = ciImage.extent
+        let cropped = output.cropped(to: cropRect)
+
+        let context = CIContext(options: nil)
+        guard let cg = context.createCGImage(cropped, from: cropRect) else { return nil }
+        return UIImage(cgImage: cg)
     }
 
     private func clampedBoardOrigin(proposed: CGPoint) -> CGPoint {

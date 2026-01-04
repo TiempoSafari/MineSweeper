@@ -46,8 +46,15 @@ final class GameViewController: UIViewController {
 
             skView.presentScene(sceneNode)
             skView.ignoresSiblingOrder = true
-            skView.showsFPS = true
-            skView.showsNodeCount = true
+            
+//            skView.showsFPS = true
+//            skView.showsNodeCount = true
+            skView.showsFPS = false
+            skView.showsNodeCount = false
+            skView.showsDrawCount = false
+            skView.showsPhysics = false
+            skView.showsFields = false
+
 
             gameScene = sceneNode
             sceneNode.uiDelegate = self
