@@ -488,6 +488,7 @@ extension GameViewController: GameSceneDelegate {
 
     /// 游戏结束（胜/负），弹窗提示并回到开始界面。
     func gameScene(_ scene: GameScene, didEndWithWin didWin: Bool) {
+        currentModeCoordinator?.handleGameEnd(didWin: didWin)
         let title = didWin ? "扫雷成功" : "扫雷失败"
         let elapsed = stopTimer()
         let timeText = String(format: "%02d:%02d", elapsed / 60, elapsed % 60)

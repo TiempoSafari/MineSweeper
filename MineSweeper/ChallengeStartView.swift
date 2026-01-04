@@ -12,11 +12,15 @@ final class ChallengeStartView: UIView {
     private let goalsStack = UIStackView()
     private let rewardLabel = UILabel()
     private let segmentedControl: UISegmentedControl
+    private let startButton = UIButton(type: .system)
 
     private var selectedIndex: Int = 0
+    private var unlockedIndex: Int = 0
+    private var baseLevelTitle: String = ""
 
-    init(levels: [ChallengeModeCoordinator.LevelDefinition], onStart: @escaping (Int) -> Void) {
+    init(levels: [ChallengeModeCoordinator.LevelDefinition], unlockedIndex: Int, onStart: @escaping (Int) -> Void) {
         self.levels = levels
+        self.unlockedIndex = unlockedIndex
         self.onStart = onStart
         self.segmentedControl = UISegmentedControl(items: levels.enumerated().map { "\($0.offset + 1)" })
         super.init(frame: .zero)
@@ -53,6 +57,7 @@ final class ChallengeStartView: UIView {
         segmentedControl.translatesAutoresizingMaskIntoConstraints = false
         segmentedControl.selectedSegmentIndex = 0
         segmentedControl.addTarget(self, action: #selector(handleSegmentChanged), for: .valueChanged)
+        updateSegmentStates()
 
         let stack = UIStackView(arrangedSubviews: [titleLabel, subtitleLabel, progressStack, segmentedControl, levelCard, rewardCard, buttonView])
         stack.translatesAutoresizingMaskIntoConstraints = false
@@ -192,7 +197,6 @@ final class ChallengeStartView: UIView {
     }
 
     private func makeStartButton() -> UIView {
-        let startButton = UIButton(type: .system)
         startButton.translatesAutoresizingMaskIntoConstraints = false
         startButton.setTitle("开始闯关", for: .normal)
         startButton.titleLabel?.font = UIFont.systemFont(ofSize: 17, weight: .semibold)
@@ -222,7 +226,8 @@ final class ChallengeStartView: UIView {
         selectedIndex = index
         let level = levels[index]
 
-        levelTitleLabel.text = "第\(index + 1)关 · \(level.title)"
+        baseLevelTitle = "第\(index + 1)关 · \(level.title)"
+        levelTitleLabel.text = baseLevelTitle
         levelDetailLabel.text = "地图 \(level.rows)×\(level.cols) · 雷 \(level.mines)"
         difficultyBadge.text = "  \(level.difficultyHint)  "
 
@@ -244,6 +249,7 @@ final class ChallengeStartView: UIView {
         }
 
         rewardLabel.text = level.reward
+        updateSegmentStates()
     }
 
     @objc private func handleSegmentChanged() {
@@ -251,6 +257,32 @@ final class ChallengeStartView: UIView {
     }
 
     @objc private func handleStartTapped() {
+        guard selectedIndex <= unlockedIndex else { return }
         onStart(selectedIndex)
+    }
+
+    func updateLevels(
+        levels: [ChallengeModeCoordinator.LevelDefinition],
+        unlockedIndex: Int,
+        selectedIndex: Int?
+    ) {
+        guard levels.count == self.levels.count else { return }
+        self.unlockedIndex = unlockedIndex
+        let preferredIndex = selectedIndex ?? min(unlockedIndex, levels.count - 1)
+        segmentedControl.selectedSegmentIndex = preferredIndex
+        updateLevelDisplay(index: preferredIndex)
+    }
+
+    private func updateSegmentStates() {
+        for index in 0..<segmentedControl.numberOfSegments {
+            segmentedControl.setEnabled(index <= unlockedIndex, forSegmentAt: index)
+        }
+
+        let isUnlocked = selectedIndex <= unlockedIndex
+        let titleSuffix = isUnlocked ? "" : "（未解锁）"
+        levelTitleLabel.text = "\(baseLevelTitle)\(titleSuffix)"
+        rewardLabel.textColor = isUnlocked ? .secondaryLabel : .tertiaryLabel
+        startButton.isEnabled = isUnlocked
+        startButton.alpha = isUnlocked ? 1.0 : 0.5
     }
 }
