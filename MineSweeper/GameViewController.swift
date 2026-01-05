@@ -10,6 +10,8 @@ final class GameViewController: UIViewController {
     // MARK: Properties
     /// 当前呈现的游戏场景（由 SKView 持有，这里弱引用避免循环）。
     private weak var gameScene: GameScene?
+    private weak var endlessScene: EndlessGameScene?
+    private weak var skView: SKView?
     /// 手势：用于拖拽棋盘（带惯性）。
     private var panGesture: UIPanGestureRecognizer?
 
@@ -27,12 +29,7 @@ final class GameViewController: UIViewController {
         iconName: "flag.checkered",
         message: "敬请期待"
     )
-    private let endlessCoordinator = PlaceholderModeCoordinator(
-        kind: .endless,
-        title: "无尽",
-        iconName: "infinity",
-        message: "敬请期待"
-    )
+    private let endlessCoordinator = EndlessModeCoordinator()
     private var modeCoordinators: [GameModeCoordinating] = []
     private var currentModeIndex: Int?
 
@@ -48,6 +45,8 @@ final class GameViewController: UIViewController {
     private var gameTimer: Timer?
     private var gameStartTime: Date?
     private var elapsedSeconds: Int = 0
+
+    private var endlessEventToast: UIAlertController?
 
     // 传统模式协调器负责难度选择与启动流程
 
@@ -78,11 +77,16 @@ final class GameViewController: UIViewController {
 
 
             gameScene = sceneNode
+            self.skView = skView
             sceneNode.uiDelegate = self
             traditionalCoordinator.presentingViewController = self
             traditionalCoordinator.gameScene = sceneNode
             traditionalCoordinator.onHUDUpdate = { [weak self] title, subtitle in
                 self?.updateHUD(title: title, subtitle: subtitle)
+            }
+            endlessCoordinator.presentingViewController = self
+            endlessCoordinator.onStartRequested = { [weak self] in
+                self?.startEndlessMode()
             }
             modeCoordinators = [
                 traditionalCoordinator,
@@ -156,6 +160,39 @@ extension GameViewController {
         } completion: { _ in
             menuView.isHidden = !visible
         }
+    }
+
+    private func setPanGestureEnabled(_ enabled: Bool) {
+        panGesture?.isEnabled = enabled
+    }
+
+    private func startEndlessMode() {
+        guard let skView else { return }
+        let scene = EndlessGameScene(size: skView.bounds.size)
+        scene.scaleMode = .aspectFill
+        scene.endlessDelegate = self
+
+        endlessScene = scene
+        skView.presentScene(scene, transition: SKTransition.fade(withDuration: 0.2))
+
+        setStartMenuVisible(false, animated: true)
+        setHUDVisible(true, animated: true)
+        setHelpToolbarVisible(false, animated: true)
+        resetTimer()
+        currentHintSuggestion = nil
+        setPanGestureEnabled(false)
+    }
+
+    private func returnToStartMenuFromEndless() {
+        guard let skView else { return }
+        endlessScene = nil
+        if let scene = gameScene {
+            skView.presentScene(scene, transition: SKTransition.fade(withDuration: 0.2))
+        }
+        setStartMenuVisible(true, animated: true)
+        setHUDVisible(false, animated: true)
+        setHelpToolbarVisible(false, animated: true)
+        setPanGestureEnabled(true)
     }
 }
 
@@ -432,6 +469,7 @@ extension GameViewController {
     @objc private func handlePan(_ gesture: UIPanGestureRecognizer) {
         if presentedViewController != nil { return }
         if startMenuView?.isHidden == false { return }
+        guard skView?.scene === gameScene else { return }
 
         guard let view = self.view else { return }
 
@@ -466,6 +504,7 @@ extension GameViewController: GameSceneDelegate {
         resetTimer()
         currentHintSuggestion = nil
         traditionalCoordinator.resetSelection()
+        setPanGestureEnabled(true)
     }
 
     /// 游戏正式开始：显示 HUD/TabBar。
@@ -475,6 +514,7 @@ extension GameViewController: GameSceneDelegate {
         setHelpToolbarVisible(true, animated: true)
         resetTimer()
         currentHintSuggestion = nil
+        setPanGestureEnabled(true)
     }
 
     /// 首次翻开格子时启动计时。
@@ -518,5 +558,61 @@ extension GameViewController: StartMenuViewDelegate {
         }
         currentModeIndex = index
         modeCoordinators[index].didSelect()
+    }
+}
+
+// MARK: - EndlessGameSceneDelegate
+
+extension GameViewController: EndlessGameSceneDelegate {
+    func endlessSceneDidRequestStartMenu(_ scene: EndlessGameScene) {
+        returnToStartMenuFromEndless()
+    }
+
+    func endlessScene(_ scene: EndlessGameScene, didUpdateHUD title: String, subtitle: String) {
+        updateHUD(title: title, subtitle: subtitle)
+    }
+
+    func endlessScene(_ scene: EndlessGameScene, presentSkillChoices skills: [Skill]) {
+        if let toast = endlessEventToast {
+            toast.dismiss(animated: true)
+            endlessEventToast = nil
+        }
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: "技能选择", message: "请选择 1 个技能", preferredStyle: .alert)
+        for skill in skills {
+            let action = UIAlertAction(title: "\(skill.name)\n\(skill.description)", style: .default) { _ in
+                scene.selectSkill(skill)
+            }
+            alert.addAction(action)
+        }
+        present(alert, animated: true)
+    }
+
+    func endlessSceneDidRequestAreaChoice(_ scene: EndlessGameScene, areaIndex: Int) {
+        if let toast = endlessEventToast {
+            toast.dismiss(animated: true)
+            endlessEventToast = nil
+        }
+        guard presentedViewController == nil else { return }
+        let alert = UIAlertController(title: "区域完成", message: "已探索完区域 \(areaIndex + 1)。", preferredStyle: .alert)
+        alert.addAction(UIAlertAction(title: "继续深入", style: .default) { _ in
+            scene.continueToNextArea()
+        })
+        alert.addAction(UIAlertAction(title: "返回营地", style: .cancel) { [weak self] _ in
+            self?.returnToStartMenuFromEndless()
+        })
+        present(alert, animated: true)
+    }
+
+    func endlessScene(_ scene: EndlessGameScene, didShowEvent message: String) {
+        endlessEventToast?.dismiss(animated: true)
+        let toast = UIAlertController(title: nil, message: message, preferredStyle: .alert)
+        endlessEventToast = toast
+        present(toast, animated: true)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.3) { [weak self, weak toast] in
+            guard let self, self.endlessEventToast == toast else { return }
+            toast?.dismiss(animated: true)
+            self.endlessEventToast = nil
+        }
     }
 }
