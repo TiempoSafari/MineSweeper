@@ -20,11 +20,14 @@ final class GridLogic {
     let cols: Int
     let mineCount: Int
     private(set) var tiles: [[GridTile]]
+    private let safePositions: Set<String>
 
-    init(rows: Int, cols: Int, mineCount: Int) {
+    init(rows: Int, cols: Int, mineCount: Int, safePositions: Set<String> = []) {
         self.rows = rows
         self.cols = cols
-        self.mineCount = min(mineCount, rows * cols - 1)
+        self.safePositions = safePositions
+        let maxMines = max(0, rows * cols - safePositions.count - 1)
+        self.mineCount = min(mineCount, maxMines)
         self.tiles = []
         generateGrid()
     }
@@ -70,7 +73,7 @@ final class GridLogic {
         var revealed: [GridTile] = []
         for r in max(0, row - radius)...min(rows - 1, row + radius) {
             for c in max(0, col - radius)...min(cols - 1, col + radius) {
-                if tiles[r][c].state == .unrevealed {
+                if tiles[r][c].state == .unrevealed, !tiles[r][c].hasMine {
                     tiles[r][c].state = .revealed
                     revealed.append(tiles[r][c])
                 }
@@ -105,10 +108,17 @@ final class GridLogic {
         }
 
         var minePositions = Set<String>()
-        while minePositions.count < mineCount {
+        var attempts = 0
+        while minePositions.count < mineCount, attempts < rows * cols * 4 {
             let row = Int.random(in: 0..<rows)
             let col = Int.random(in: 0..<cols)
-            minePositions.insert("\(row)-\(col)")
+            let key = "\(row)-\(col)"
+            if safePositions.contains(key) {
+                attempts += 1
+                continue
+            }
+            minePositions.insert(key)
+            attempts += 1
         }
 
         for key in minePositions {

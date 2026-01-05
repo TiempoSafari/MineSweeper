@@ -10,6 +10,27 @@ protocol EndlessGameSceneDelegate: AnyObject {
 }
 
 final class EndlessGameScene: SKScene {
+    private struct Room {
+        let rowRange: ClosedRange<Int>
+        let colRange: ClosedRange<Int>
+
+        var tiles: Set<String> {
+            var results = Set<String>()
+            for row in rowRange {
+                for col in colRange {
+                    results.insert("\(row)-\(col)")
+                }
+            }
+            return results
+        }
+
+        var center: (Int, Int) {
+            let row = (rowRange.lowerBound + rowRange.upperBound) / 2
+            let col = (colRange.lowerBound + colRange.upperBound) / 2
+            return (row, col)
+        }
+    }
+
     weak var endlessDelegate: EndlessGameSceneDelegate?
 
     private let worldGenerator = WorldGenerator()
@@ -20,13 +41,13 @@ final class EndlessGameScene: SKScene {
     private var currentArea: Area?
 
     private var boardNode = SKNode()
-    private var tileNodes: [[SKShapeNode]] = []
+    private var tileNodes: [[SKSpriteNode]] = []
     private var tileLabels: [[SKLabelNode]] = []
-    private var tileSize: CGFloat = 36
+    private var tileSize: CGFloat = 30
     private var boardOrigin = CGPoint.zero
 
     private var playerController = PlayerController(position: .zero)
-    private var playerNode = SKShapeNode(circleOfRadius: 14)
+    private var playerNode = SKSpriteNode()
 
     private var joystickBase = SKShapeNode(circleOfRadius: 42)
     private var joystickKnob = SKShapeNode(circleOfRadius: 18)
@@ -34,13 +55,20 @@ final class EndlessGameScene: SKScene {
     private var joystickVector = CGVector.zero
 
     private var lastUpdateTime: TimeInterval = 0
-    private var revealedSafeTiles: Int = 0
     private var mineTriggered: Set<String> = []
 
-    private var itemNodes: [String: SKShapeNode] = [:]
-    private var enemyNodes: [String: SKShapeNode] = [:]
+    private var itemNodes: [String: SKSpriteNode] = [:]
+    private var enemyNodes: [String: SKSpriteNode] = [:]
+
+    private var rooms: [Room] = []
+    private var roomTiles: Set<String> = []
+    private var portalTile: (Int, Int)?
+    private var portalNode: SKSpriteNode?
 
     private var pendingAreaCompletion = false
+    private var currentTileCoord: (Int, Int)?
+
+    private lazy var textures = PixelTextures()
 
     override func didMove(to view: SKView) {
         backgroundColor = SKColor(red: 0.08, green: 0.09, blue: 0.12, alpha: 1)
@@ -61,20 +89,29 @@ final class EndlessGameScene: SKScene {
         itemNodes.removeAll()
         enemyNodes.removeAll()
         mineTriggered.removeAll()
-        revealedSafeTiles = 0
         pendingAreaCompletion = false
+        currentTileCoord = nil
+        portalNode = nil
 
         let area = worldGenerator.generateArea(index: index)
         currentArea = area
-        gridLogic = GridLogic(rows: area.rows, cols: area.cols, mineCount: area.mines)
 
-        tileSize = min(48, max(26, 320 / CGFloat(max(area.rows, area.cols))))
+        rooms = generateRooms(rows: area.rows, cols: area.cols)
+        roomTiles = rooms.reduce(into: Set<String>()) { result, room in
+            result.formUnion(room.tiles)
+        }
+
+        let safeTiles = roomTiles
+        gridLogic = GridLogic(rows: area.rows, cols: area.cols, mineCount: area.mines, safePositions: safeTiles)
+
+        tileSize = min(38, max(22, 300 / CGFloat(max(area.rows, area.cols))))
         let gridWidth = CGFloat(area.cols) * tileSize
         let gridHeight = CGFloat(area.rows) * tileSize
         boardOrigin = CGPoint(x: -gridWidth / 2 + tileSize / 2, y: -gridHeight / 2 + tileSize / 2)
 
         buildTiles(rows: area.rows, cols: area.cols)
         setupPlayer()
+        setupPortal()
         revealInitialTile()
         updateHUD()
     }
@@ -106,15 +143,25 @@ final class EndlessGameScene: SKScene {
         let delta = currentTime - lastUpdateTime
         lastUpdateTime = currentTime
 
-        if joystickVector != .zero {
-            let velocity = CGVector(dx: joystickVector.dx * playerController.moveSpeed,
-                                    dy: joystickVector.dy * playerController.moveSpeed)
-            let newPosition = CGPoint(x: playerNode.position.x + velocity.dx * delta,
-                                      y: playerNode.position.y + velocity.dy * delta)
-            if canMove(to: newPosition, gridLogic: gridLogic) {
-                playerNode.position = newPosition
-                playerController.position = newPosition
-                handleTileEntry(at: newPosition)
+        guard joystickVector != .zero else { return }
+        let velocity = CGVector(dx: joystickVector.dx * playerController.moveSpeed,
+                                dy: joystickVector.dy * playerController.moveSpeed)
+        let newPosition = CGPoint(x: playerNode.position.x + velocity.dx * delta,
+                                  y: playerNode.position.y + velocity.dy * delta)
+
+        guard let (row, col) = tileCoordinate(for: newPosition) else { return }
+        guard let tile = gridLogic.tile(atRow: row, col: col) else { return }
+
+        if tile.state == .unrevealed {
+            revealTileForMovement(row: row, col: col)
+        }
+
+        if tile.state == .revealed {
+            playerNode.position = newPosition
+            playerController.position = newPosition
+            if currentTileCoord?.0 != row || currentTileCoord?.1 != col {
+                currentTileCoord = (row, col)
+                handleTileEntry(row: row, col: col)
             }
         }
     }
@@ -126,13 +173,6 @@ final class EndlessGameScene: SKScene {
             if joystickBase.contains(location) {
                 joystickTouch = touch
                 updateJoystick(location: location)
-                return
-            }
-        }
-        if let touch = touches.first {
-            let location = touch.location(in: self)
-            if let (row, col) = tileCoordinate(for: location) {
-                revealTile(row: row, col: col)
             }
         }
     }
@@ -209,18 +249,17 @@ final class EndlessGameScene: SKScene {
 
         for row in 0..<rows {
             for col in 0..<cols {
-                let tile = SKShapeNode(rectOf: CGSize(width: tileSize - 2, height: tileSize - 2), cornerRadius: 6)
-                tile.fillColor = SKColor(red: 0.2, green: 0.24, blue: 0.3, alpha: 1)
-                tile.strokeColor = SKColor.white.withAlphaComponent(0.08)
-                tile.lineWidth = 1
+                let tile = SKSpriteNode(texture: textures.unrevealed)
+                tile.size = CGSize(width: tileSize, height: tileSize)
+                tile.texture?.filteringMode = .nearest
                 tile.position = pointForTile(row: row, col: col)
                 tile.zPosition = 1
 
-                let label = SKLabelNode(fontNamed: "HelveticaNeue-Bold")
-                label.fontSize = 14
+                let label = SKLabelNode(fontNamed: "Menlo-Bold")
+                label.fontSize = tileSize * 0.45
                 label.fontColor = .white
                 label.alpha = 0
-                label.position = CGPoint(x: 0, y: -6)
+                label.position = CGPoint(x: 0, y: -tileSize * 0.22)
                 label.zPosition = 2
 
                 tile.addChild(label)
@@ -234,76 +273,81 @@ final class EndlessGameScene: SKScene {
 
     private func setupPlayer() {
         playerNode.removeFromParent()
-        playerNode = SKShapeNode(circleOfRadius: tileSize * 0.32)
-        playerNode.fillColor = SKColor.systemGreen
-        playerNode.strokeColor = SKColor.white.withAlphaComponent(0.4)
-        playerNode.lineWidth = 1
+        playerNode = SKSpriteNode(texture: textures.player)
+        playerNode.size = CGSize(width: tileSize * 0.75, height: tileSize * 0.75)
+        playerNode.texture?.filteringMode = .nearest
         playerNode.zPosition = 10
         addChild(playerNode)
     }
 
+    private func setupPortal() {
+        guard let portalRoom = rooms.randomElement() else { return }
+        let (row, col) = portalRoom.center
+        portalTile = (row, col)
+
+        let portal = SKSpriteNode(texture: textures.portal)
+        portal.size = CGSize(width: tileSize * 0.7, height: tileSize * 0.7)
+        portal.texture?.filteringMode = .nearest
+        portal.position = pointForTile(row: row, col: col)
+        portal.zPosition = 6
+        portal.alpha = 0
+        boardNode.addChild(portal)
+        portalNode = portal
+    }
+
     private func revealInitialTile() {
         guard let gridLogic, let area = currentArea else { return }
-        let startRow = area.rows / 2
-        let startCol = area.cols / 2
+        let startRoom = rooms.first ?? Room(rowRange: 0...0, colRange: 0...0)
+        let (startRow, startCol) = startRoom.center
         let revealed = gridLogic.reveal(row: startRow, col: startCol)
         applyRevealChanges(revealed)
         let position = pointForTile(row: startRow, col: startCol)
         playerNode.position = position
         playerController.position = position
-        handleTileEntry(at: position)
+        currentTileCoord = (startRow, startCol)
+        handleTileEntry(row: startRow, col: startCol)
     }
 
-    private func revealTile(row: Int, col: Int) {
+    private func revealTileForMovement(row: Int, col: Int) {
         guard let gridLogic else { return }
         let revealed = gridLogic.reveal(row: row, col: col)
         applyRevealChanges(revealed)
         updateHUD()
-        if revealed.contains(where: { $0.hasMine }) {
-            endlessDelegate?.endlessScene(self, didShowEvent: "踩到地雷会造成伤害，谨慎探索！")
-        }
     }
 
     private func applyRevealChanges(_ revealed: [GridTile]) {
         for tile in revealed {
             let node = tileNodes[tile.row][tile.col]
             let label = tileLabels[tile.row][tile.col]
-            node.fillColor = SKColor(red: 0.38, green: 0.4, blue: 0.45, alpha: 1)
+            let tileKey = self.tileKey(row: tile.row, col: tile.col)
+            let isRoomTile = roomTiles.contains(tileKey)
+
+            node.texture = textureForRevealedTile(isRoom: isRoomTile, isMine: tile.hasMine)
+            node.texture?.filteringMode = .nearest
 
             if tile.hasMine {
-                label.text = "💥"
+                label.text = "!"
                 label.alpha = 1
-                node.fillColor = SKColor(red: 0.46, green: 0.2, blue: 0.22, alpha: 1)
             } else if tile.adjacentMines > 0 {
                 label.text = "\(tile.adjacentMines)"
                 label.alpha = 1
             }
 
-            if !tile.hasMine {
-                revealedSafeTiles += 1
+            if let portal = portalTile, portal.0 == tile.row, portal.1 == tile.col {
+                portalNode?.alpha = 1
             }
         }
-
-        checkAreaCompletion()
     }
 
-    private func checkAreaCompletion() {
-        guard let gridLogic else { return }
-        if gridLogic.remainingSafeTiles() == 0 {
-            pendingAreaCompletion = true
-            let skills = skillSystem.randomSkills(count: 3)
-            endlessDelegate?.endlessScene(self, presentSkillChoices: skills)
+    private func textureForRevealedTile(isRoom: Bool, isMine: Bool) -> SKTexture {
+        if isMine {
+            return textures.mine
         }
+        return isRoom ? textures.roomFloor : textures.revealed
     }
 
-    private func canMove(to position: CGPoint, gridLogic: GridLogic) -> Bool {
-        guard let (row, col) = tileCoordinate(for: position) else { return false }
-        guard let tile = gridLogic.tile(atRow: row, col: col) else { return false }
-        return tile.state == .revealed
-    }
-
-    private func handleTileEntry(at position: CGPoint) {
-        guard let gridLogic, let (row, col) = tileCoordinate(for: position) else { return }
+    private func handleTileEntry(row: Int, col: Int) {
+        guard let gridLogic else { return }
         guard let tile = gridLogic.tile(atRow: row, col: col) else { return }
         let key = tileKey(row: row, col: col)
 
@@ -331,8 +375,19 @@ final class EndlessGameScene: SKScene {
             applyRevealChanges(revealed)
         }
 
+        if let portal = portalTile, portal.0 == row, portal.1 == col {
+            handlePortalEntry()
+        }
+
         collectItemIfNeeded(at: key)
         updateHUD()
+    }
+
+    private func handlePortalEntry() {
+        guard !pendingAreaCompletion else { return }
+        pendingAreaCompletion = true
+        let skills = skillSystem.randomSkills(count: 3)
+        endlessDelegate?.endlessScene(self, presentSkillChoices: skills)
     }
 
     private func triggerExplorationEvent(at row: Int, col: Int) {
@@ -366,9 +421,9 @@ final class EndlessGameScene: SKScene {
     private func spawnEnemy(atRow row: Int, col: Int) {
         let key = tileKey(row: row, col: col)
         guard enemyNodes[key] == nil else { return }
-        let enemy = SKShapeNode(circleOfRadius: tileSize * 0.26)
-        enemy.fillColor = SKColor.systemRed
-        enemy.strokeColor = SKColor.white.withAlphaComponent(0.3)
+        let enemy = SKSpriteNode(texture: textures.enemy)
+        enemy.size = CGSize(width: tileSize * 0.6, height: tileSize * 0.6)
+        enemy.texture?.filteringMode = .nearest
         enemy.position = pointForTile(row: row, col: col)
         enemy.zPosition = 5
         boardNode.addChild(enemy)
@@ -378,18 +433,11 @@ final class EndlessGameScene: SKScene {
     private func spawnItem(_ item: Item, atRow row: Int, col: Int) {
         let key = tileKey(row: row, col: col)
         guard itemNodes[key] == nil else { return }
-        let drop = SKShapeNode(circleOfRadius: tileSize * 0.22)
-        drop.fillColor = SKColor.systemYellow
-        drop.strokeColor = SKColor.white.withAlphaComponent(0.2)
+        let drop = SKSpriteNode(texture: textures.item)
+        drop.size = CGSize(width: tileSize * 0.5, height: tileSize * 0.5)
+        drop.texture?.filteringMode = .nearest
         drop.position = pointForTile(row: row, col: col)
         drop.zPosition = 4
-
-        let label = SKLabelNode(fontNamed: "HelveticaNeue")
-        label.fontSize = 10
-        label.text = "物"
-        label.fontColor = .black
-        label.position = CGPoint(x: 0, y: -4)
-        drop.addChild(label)
 
         boardNode.addChild(drop)
         itemNodes[key] = drop
@@ -429,6 +477,36 @@ final class EndlessGameScene: SKScene {
         }
     }
 
+    private func generateRooms(rows: Int, cols: Int) -> [Room] {
+        var generated: [Room] = []
+        let roomCount = min(5, max(3, rows / 6))
+        var attempts = 0
+
+        while generated.count < roomCount && attempts < 40 {
+            attempts += 1
+            let roomRows = Int.random(in: 4...min(7, rows - 2))
+            let roomCols = Int.random(in: 4...min(7, cols - 2))
+            let startRow = Int.random(in: 1...(rows - roomRows - 1))
+            let startCol = Int.random(in: 1...(cols - roomCols - 1))
+            let rowRange = startRow...(startRow + roomRows - 1)
+            let colRange = startCol...(startCol + roomCols - 1)
+
+            let newRoom = Room(rowRange: rowRange, colRange: colRange)
+            let overlaps = generated.contains { existing in
+                rowRange.overlaps(existing.rowRange) && colRange.overlaps(existing.colRange)
+            }
+            if !overlaps {
+                generated.append(newRoom)
+            }
+        }
+
+        if generated.isEmpty {
+            generated.append(Room(rowRange: 0...min(3, rows - 1), colRange: 0...min(3, cols - 1)))
+        }
+
+        return generated
+    }
+
     private func pointForTile(row: Int, col: Int) -> CGPoint {
         CGPoint(x: boardOrigin.x + CGFloat(col) * tileSize,
                 y: boardOrigin.y + CGFloat(row) * tileSize)
@@ -457,5 +535,49 @@ final class EndlessGameScene: SKScene {
         }
         let subtitle = "区域 \(area.index + 1) · 生命 \(playerController.hp)/\(playerController.maxHP) · 装备 \(equipmentText.isEmpty ? "无" : equipmentText.joined(separator: "/"))"
         endlessDelegate?.endlessScene(self, didUpdateHUD: "无尽探索", subtitle: subtitle)
+    }
+}
+
+private final class PixelTextures {
+    let unrevealed = PixelTextures.makePixelTexture(fill: UIColor(red: 0.18, green: 0.2, blue: 0.26, alpha: 1), border: UIColor(red: 0.3, green: 0.32, blue: 0.4, alpha: 1))
+    let revealed = PixelTextures.makePixelTexture(fill: UIColor(red: 0.36, green: 0.38, blue: 0.46, alpha: 1), border: UIColor(red: 0.48, green: 0.5, blue: 0.6, alpha: 1))
+    let roomFloor = PixelTextures.makePixelTexture(fill: UIColor(red: 0.22, green: 0.3, blue: 0.24, alpha: 1), border: UIColor(red: 0.32, green: 0.42, blue: 0.34, alpha: 1))
+    let mine = PixelTextures.makePixelTexture(fill: UIColor(red: 0.46, green: 0.18, blue: 0.2, alpha: 1), border: UIColor(red: 0.7, green: 0.35, blue: 0.3, alpha: 1))
+    let player = PixelTextures.makePixelTexture(fill: UIColor(red: 0.28, green: 0.86, blue: 0.5, alpha: 1), border: UIColor.white)
+    let portal = PixelTextures.makePortalTexture()
+    let item = PixelTextures.makePixelTexture(fill: UIColor(red: 0.96, green: 0.84, blue: 0.2, alpha: 1), border: UIColor.white)
+    let enemy = PixelTextures.makePixelTexture(fill: UIColor(red: 0.92, green: 0.3, blue: 0.3, alpha: 1), border: UIColor.white)
+
+    private static func makePixelTexture(fill: UIColor, border: UIColor) -> SKTexture {
+        let size = CGSize(width: 16, height: 16)
+        UIGraphicsBeginImageContextWithOptions(size, false, 1)
+        defer { UIGraphicsEndImageContext() }
+        fill.setFill()
+        UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+        border.setStroke()
+        let borderPath = UIBezierPath(rect: CGRect(origin: .zero, size: size).insetBy(dx: 0.5, dy: 0.5))
+        borderPath.lineWidth = 1
+        borderPath.stroke()
+        guard let image = UIGraphicsGetImageFromCurrentImageContext() else { return SKTexture() }
+        return SKTexture(image: image)
+    }
+
+    private static func makePortalTexture() -> SKTexture {
+        let size = CGSize(width: 16, height: 16)
+        UIGraphicsBeginImageContextWithOptions(size, false, 1)
+        defer { UIGraphicsEndImageContext() }
+
+        UIColor(red: 0.2, green: 0.18, blue: 0.35, alpha: 1).setFill()
+        UIBezierPath(rect: CGRect(origin: .zero, size: size)).fill()
+
+        let glow = UIColor(red: 0.74, green: 0.55, blue: 0.96, alpha: 1)
+        glow.setFill()
+        UIBezierPath(roundedRect: CGRect(x: 3, y: 3, width: 10, height: 10), cornerRadius: 2).fill()
+
+        UIColor.white.setFill()
+        UIBezierPath(rect: CGRect(x: 6, y: 6, width: 4, height: 4)).fill()
+
+        guard let image = UIGraphicsGetImageFromCurrentImageContext() else { return SKTexture() }
+        return SKTexture(image: image)
     }
 }
